@@ -1,0 +1,29 @@
+{
+  "name": "teammate",
+  "version": "0.1.0",
+  "description": "Battle buddy for new SREs joining regulated teams. Pluggable Obsidian vault + local LLM (Ollama, gbrain-compatible) + ISO 27001 / K-ISMS-P compliance scanners + production guardrail hooks. One install, day-1 ready.",
+  "homepage": "https://github.com/placen-org/teammate",
+  "license": "MIT",
+  "skills": [
+    "skills/init-teammate/SKILL.md",
+    "skills/score-compliance/SKILL.md",
+    "skills/attest-compliance/SKILL.md",
+    "skills/watch-advisories/SKILL.md",
+    "skills/ask-vault/SKILL.md"
+  ],
+  "hooks": {
+    "PreToolUse": "hooks/pre-tool-use-guardrail.sh"
+  },
+  "mcp_servers": {
+    "teammate-vault": {
+      "command": "python",
+      "args": ["-m", "teammate.mcp_server"],
+      "description": "Exposes the team's compliance vault as MCP resources."
+    }
+  },
+  "requires": {
+    "python": ">=3.11",
+    "ollama": "optional (for the local-LLM RAG path)",
+    "gbrain": "optional (cross-machine memory sync)"
+  }
+}
