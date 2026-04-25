@@ -63,6 +63,7 @@ if echo "$tool_name" | grep -iqE '^bash$|run_command'; then
       block_msg="git push to a protected branch (or force push). Use a feature branch + PR."
       ;;
     *"terraform apply"*"prod"*|*"terraform apply"*"production"*|\
+    *"prod"*"terraform apply"*|*"production"*"terraform apply"*|\
     *"terraform destroy"*)
       block_msg="terraform apply/destroy against a prod-tagged path. Use plan-only first, then a reviewed apply."
       ;;

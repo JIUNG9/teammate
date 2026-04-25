@@ -255,17 +255,19 @@ class Vault:
         body_lines.append("")
 
         out = _render_frontmatter(meta) + "\n".join(body_lines)
-        path = self.root / "advisories" / f"{ts}.md"
+        path = self.root / "advisories" / f"{ts}-{source}.md"
         _atomic_write(path, out)
 
         # Append a one-line history entry too — keeps `history/` chronological.
+        # Filename includes source so two adjacent watch runs (KISA + NVD) within
+        # the same minute don't collide.
         hist_meta = {**meta, "teammate_kind": "history-entry"}
         hist_body = (
             f"# Advisory diff — {source} ({len(new_items)} item(s))\n\n"
-            f"See [advisories/{ts}.md](../advisories/{ts}.md) for details.\n"
+            f"See [advisories/{ts}-{source}.md](../advisories/{ts}-{source}.md) for details.\n"
         )
         _atomic_write(
-            self.root / "history" / f"{ts}-advisory.md",
+            self.root / "history" / f"{ts}-advisory-{source}.md",
             _render_frontmatter(hist_meta) + hist_body,
         )
         return path
