@@ -48,7 +48,7 @@ The expected `--certificate-identity` for the example artifact shipped in
 this repo is:
 
 ```
-https://github.com/placen-org/teammate/.github/workflows/sign-example.yml@refs/heads/main
+https://github.com/JIUNG9/teammate/.github/workflows/sign-example.yml@refs/heads/main
 ```
 
 For attestations produced by a team's own `--sign` flow, the identity

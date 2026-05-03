@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please open a private security advisory via GitHub:
-https://github.com/placen-org/teammate/security/advisories/new
+https://github.com/JIUNG9/teammate/security/advisories/new
 
 We aim to acknowledge reports within 3 business days.
 

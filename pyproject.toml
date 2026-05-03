@@ -61,9 +61,9 @@ all = [
 teammate = "teammate.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/placen-org/teammate"
-Repository = "https://github.com/placen-org/teammate"
-Issues = "https://github.com/placen-org/teammate/issues"
+Homepage = "https://github.com/JIUNG9/teammate"
+Repository = "https://github.com/JIUNG9/teammate"
+Issues = "https://github.com/JIUNG9/teammate/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/teammate"]

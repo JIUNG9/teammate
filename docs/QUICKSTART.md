@@ -13,7 +13,7 @@ curl -fsSL https://claude.ai/install.sh | sh
 ```bash
 pip install claude-teammate
 # or:
-claude plugin install placen-org/teammate
+claude plugin install JIUNG9/teammate
 ```
 
 ## Step 3 — Clone the team-brain

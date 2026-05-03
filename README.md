@@ -2,7 +2,7 @@
 
 > **Your team's brain in your team's git repo.** Local-LLM-queryable, Obsidian-friendly, git-federated. The Teamspace alternative for teams who can't put context in someone else's cloud.
 
-[![CI](https://github.com/placen-org/teammate/actions/workflows/ci.yml/badge.svg)](https://github.com/placen-org/teammate/actions/workflows/ci.yml)
+[![CI](https://github.com/JIUNG9/teammate/actions/workflows/ci.yml/badge.svg)](https://github.com/JIUNG9/teammate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## What this is
@@ -53,7 +53,7 @@ You're setting up the brain for your team. You'll do this once for the org.
 ```bash
 pip install claude-teammate
 # or, if your team already uses Claude Code's plugin marketplace:
-claude plugin install placen-org/teammate
+claude plugin install JIUNG9/teammate
 ```
 
 **2. Scaffold an empty team-brain directory.**
@@ -133,7 +133,7 @@ curl -fsSL https://claude.ai/install.sh | sh
 ```bash
 pip install claude-teammate
 # or via the Claude Code plugin marketplace:
-claude plugin install placen-org/teammate
+claude plugin install JIUNG9/teammate
 ```
 
 **3. Clone the team-brain repo.**
