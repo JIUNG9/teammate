@@ -30,8 +30,10 @@ from pathlib import Path
 from typing import Any
 
 from teammate import __version__
+from teammate.config import load_config
+from teammate.providers import load_embedding_provider
 from teammate.rag.ask import retrieve
-from teammate.rag.ollama import OllamaClient
+from teammate.rag.index import IndexVersionMismatch, open_index
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -129,27 +131,45 @@ def _read_resource(uri: str) -> str:
 # ---------- tool: brain.search ----------
 
 
-def _tool_brain_search(args: dict[str, Any]) -> list[dict[str, Any]]:
+def _tool_brain_search(args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query", "")).strip()
     k = int(args.get("k", 6))
     if not query:
-        return []
-    cache_dir = _brain_root() / ".teammate-cache"
+        return {"hits": []}
+    root = _brain_root()
+    cache_dir = root / ".teammate-cache"
     db = cache_dir / "vault.sqlite"
     if not db.exists():
-        return []
-    ollama = OllamaClient()
-    hits = retrieve(db, query, k=k, ollama=ollama if ollama.is_up() else None)
-    return [
-        {
-            "path": h.path,
-            "chunk_idx": h.chunk_idx,
-            "section": h.kind,
-            "score": h.score,
-            "text": h.text,
-        }
-        for h in hits
-    ]
+        return {"hits": []}
+
+    cfg = load_config(root)
+    embedder = load_embedding_provider(cfg.embedding)
+
+    # Validate the index stamp matches the configured embedder. Mismatch is
+    # surfaced to the caller as a hint rather than an empty result.
+    if embedder is not None:
+        try:
+            conn = open_index(cache_dir, embedder=embedder)
+            conn.close()
+        except IndexVersionMismatch as exc:
+            return {
+                "hits": [],
+                "hint": str(exc),
+            }
+
+    hits = retrieve(db, query, k=k, embedder=embedder)
+    return {
+        "hits": [
+            {
+                "path": h.path,
+                "chunk_idx": h.chunk_idx,
+                "section": h.kind,
+                "score": h.score,
+                "text": h.text,
+            }
+            for h in hits
+        ]
+    }
 
 
 # ---------- JSON-RPC dispatch ----------
@@ -219,9 +239,9 @@ def handle(req: dict[str, Any]) -> dict[str, Any] | None:
         name = params.get("name", "")
         args = params.get("arguments", {}) or {}
         if name == "brain.search":
-            hits = _tool_brain_search(args)
+            payload = _tool_brain_search(args)
             return _make_response(req_id, {
-                "content": [{"type": "text", "text": json.dumps({"hits": hits}, indent=2)}],
+                "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
                 "isError": False,
             })
         return _make_error(req_id, -32601, f"Tool not found: {name}")

@@ -1,0 +1,15 @@
+# teammate config — local Ollama on the developer's laptop.
+# Drop this at `<repo>/.teammate/config.toml` (per-repo) or
+# `~/.teammate/config.toml` (per-user).
+
+[llm]
+provider = "ollama"
+model    = "llama3.2:3b"
+# Default Ollama port. Override if you run Ollama on a sidecar host.
+host     = "http://localhost:11434"
+
+[embedding]
+provider = "ollama"
+# nomic-embed-text is small, fast, English-good. Output dim = 768.
+model    = "nomic-embed-text"
+host     = "http://localhost:11434"

@@ -1,0 +1,17 @@
+# teammate config — Ollama hosted inside a corporate VPN.
+#
+# Use this when the developer machine cannot reach `localhost:11434` (no local
+# Ollama install allowed) but the team runs a shared Ollama behind the VPN. If
+# your corporate proxy injects TLS for egress inspection, set the env var
+# `HTTPX_VERIFY=/path/to/your/ca-bundle.pem` so `httpx` trusts the proxy CA;
+# otherwise embedding requests will fail with a TLS verification error.
+
+[llm]
+provider = "ollama"
+model    = "llama3.2:3b"
+host     = "http://internal-ollama.your-team.local:11434"
+
+[embedding]
+provider = "ollama"
+model    = "nomic-embed-text"
+host     = "http://internal-ollama.your-team.local:11434"

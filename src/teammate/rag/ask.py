@@ -3,19 +3,19 @@
 Flow::
 
     query
-      ├── embed query (Ollama)              ──► retrieve top-k chunks via cosine
-      │   if Ollama down                    ──► retrieve top-k via keyword score
+      ├── embed query (EmbeddingProvider)   ──► retrieve top-k chunks via cosine
+      │   if provider down                  ──► retrieve top-k via keyword score
       │
       └── build context block (top-k chunk texts + paths)
               │
               ▼
-         Ollama LLM call(system = SYSTEM_PROMPT, prompt = context + query)
+         LLMProvider.generate(system=SYSTEM_PROMPT, prompt=context + query)
               │
               ▼
          streamed answer to stdout
 
-When Ollama isn't running, we still return useful output: the matching
-file paths + a short keyword-only snippet. Better than failing hard.
+When neither provider is reachable, we still return useful output: the
+matching file paths + a short keyword-only snippet. Better than failing hard.
 """
 
 from __future__ import annotations
@@ -28,7 +28,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from teammate.rag.ollama import OllamaClient, OllamaError, OllamaUnavailable
+from teammate.providers.base import (
+    EmbeddingProvider,
+    LLMProvider,
+    ProviderError,
+    ProviderUnavailable,
+)
 
 SYSTEM_PROMPT = """\
 You are teammate, a battle buddy for SREs joining regulated teams. You are
@@ -82,7 +87,6 @@ def _keyword_score(text: str, terms: list[str]) -> float:
     text_low = text.lower()
     score = 0.0
     for term in terms:
-        # Reward exact-token matches more than substring hits.
         score += 2.0 * len(re.findall(rf"\b{re.escape(term)}\b", text_low))
         score += 0.5 * text_low.count(term)
     return score / max(1, len(text))
@@ -96,7 +100,7 @@ def retrieve(
     db_path: Path,
     query: str,
     k: int = 6,
-    ollama: OllamaClient | None = None,
+    embedder: EmbeddingProvider | None = None,
 ) -> list[Hit]:
     """Retrieve top-k vault chunks relevant to ``query``."""
     if not db_path.exists():
@@ -110,16 +114,15 @@ def retrieve(
     if not rows:
         return []
 
-    # Try embedding-based retrieval if Ollama is available + chunks have embeddings.
     use_embeddings = False
     qvec: list[float] | None = None
-    if ollama and ollama.is_up() and any(r[3] is not None for r in rows):
+    if embedder and embedder.is_up() and any(r[3] is not None for r in rows):
         try:
-            vecs = ollama.embed([query])
+            vecs = embedder.embed([query])
             if vecs:
                 qvec = vecs[0]
                 use_embeddings = True
-        except (OllamaUnavailable, OllamaError):
+        except (ProviderUnavailable, ProviderError):
             use_embeddings = False
 
     hits: list[Hit] = []
@@ -181,11 +184,12 @@ def answer(
     query: str,
     db_path: Path,
     repo_root: Path,
-    ollama: OllamaClient | None = None,
+    embedder: EmbeddingProvider | None = None,
+    llm: LLMProvider | None = None,
     k: int = 6,
 ) -> Iterator[str]:
     """Yield answer chunks. Either streamed LLM tokens or fallback text."""
-    hits = retrieve(db_path, query, k=k, ollama=ollama)
+    hits = retrieve(db_path, query, k=k, embedder=embedder)
 
     if not hits:
         yield (
@@ -194,12 +198,14 @@ def answer(
         )
         return
 
-    if not ollama or not ollama.is_up():
-        # Fallback: list the top hits, no LLM synthesis.
-        yield "Local LLM (Ollama) not running — returning matching files instead of a synthesized answer.\n\n"
+    if llm is None or not llm.is_up():
+        yield (
+            "Local LLM not running — returning matching files instead of a "
+            "synthesized answer.\n\n"
+        )
         for h in hits:
             yield f"- {h.path}#chunk{h.chunk_idx} (score={h.score:.3f})\n"
-        yield "\nStart Ollama (`ollama serve`) and re-run for a synthesized answer.\n"
+        yield "\nStart your LLM provider and re-run for a synthesized answer.\n"
         return
 
     context = _format_context(hits, repo_root)
@@ -210,11 +216,11 @@ def answer(
         f"## Answer\n"
     )
     try:
-        yield from ollama.generate(prompt, system=SYSTEM_PROMPT, stream=True)
-    except OllamaUnavailable:
-        yield "\n\n(Ollama disconnected mid-stream. Try again.)\n"
-    except OllamaError as exc:
-        yield f"\n\n(Ollama errored: {exc})\n"
+        yield from llm.generate(prompt, system=SYSTEM_PROMPT, stream=True)
+    except ProviderUnavailable:
+        yield "\n\n(LLM provider disconnected mid-stream. Try again.)\n"
+    except ProviderError as exc:
+        yield f"\n\n(LLM provider errored: {exc})\n"
 
 
 __all__ = ["Hit", "answer", "retrieve", "SYSTEM_PROMPT"]
