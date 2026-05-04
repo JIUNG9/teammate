@@ -224,6 +224,16 @@ git push
 # CI re-builds the index, your teammates get it on their next pull
 ```
 
+### When something doesn't work
+
+```bash
+teammate doctor          # quick diagnostic — reachability, config, models, index, proxy
+teammate doctor --json   # same, machine-readable for CI
+```
+
+For deployment behind a corporate proxy or with an internal Ollama mirror,
+see [`docs/CORPORATE.md`](docs/CORPORATE.md).
+
 ---
 
 ## Architecture

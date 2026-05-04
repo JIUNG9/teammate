@@ -1,0 +1,47 @@
+# teammate config — Ollama mirror inside a corporate VPN, reached via proxy/CA.
+#
+# Use this when your company runs a shared Ollama on an internal box
+# (typically reachable only over VPN), egress goes through a corporate proxy,
+# and TLS is intercepted with a custom CA. The "airgapped-ollama.toml"
+# sibling is for the simpler case where the box is reachable directly
+# without a proxy or custom trust anchor — pick that one if you don't need
+# the env-var dance below.
+#
+# Environment variables that govern transport (set in your shell or
+# `.envrc` — this TOML doesn't read them, the OS does):
+#
+#   OLLAMA_HOST          — alternate way to set the Ollama base URL.
+#                          The TOML `host` key below takes precedence.
+#
+#   HTTPS_PROXY          — corporate egress proxy for https://
+#   HTTP_PROXY           — same, for http://
+#   NO_PROXY             — comma list. ALWAYS include the internal
+#                          Ollama hostname here so traffic to it doesn't
+#                          get bounced back through the proxy:
+#                          `localhost,127.0.0.1,*.internal,*.your-team.local`
+#
+#   SSL_CERT_FILE        — path to your corporate CA bundle (PEM).
+#                          httpx (teammate's HTTP dep) honors this natively.
+#   REQUESTS_CA_BUNDLE   — same idea, used by `requests` and respected
+#                          as a fallback if SSL_CERT_FILE is not set.
+#   HTTPX_VERIFY         — explicit per-call override; rarely needed
+#                          if SSL_CERT_FILE is already set.
+#
+# After exporting these, verify the model list resolves:
+#
+#   teammate doctor
+#
+# `teammate doctor` prints reachability + latency, model availability
+# (`llama3.2:3b`, `nomic-embed-text` — pull them on the mirror first),
+# the effective proxy/CA env, and the index stamp. See `docs/CORPORATE.md`
+# for the full corporate-deployment guide.
+
+[llm]
+provider = "ollama"
+model    = "llama3.2:3b"
+host     = "https://ollama.internal.your-team.local:11434"
+
+[embedding]
+provider = "ollama"
+model    = "nomic-embed-text"
+host     = "https://ollama.internal.your-team.local:11434"

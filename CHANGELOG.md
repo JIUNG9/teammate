@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.1] — 2026-05-04
+
+### Added
+- `teammate doctor` — diagnostic CLI: config source, LLM/embedding reachability with latency, model availability, index status (with version-stamp validation), proxy/CA env detection. `--json` flag for scripting / CI.
+- `examples/configs/corporate-ollama.toml` — internal-mirror config example with proxy + custom-CA hints.
+- `docs/CORPORATE.md` — corporate-environment deployment guide: proxy, CA bundles, air-gapped install, troubleshooting.
+- `README.md`: pointer to `teammate doctor` and `docs/CORPORATE.md` for corporate adopters.
+
+### Notes
+- Patch release. No breaking changes from v0.3.0. Backward-compat shim in `rag/ollama` still works with `DeprecationWarning`.
+
 ## [0.3.0] — 2026-05-04
 
 ### Added

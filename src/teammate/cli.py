@@ -11,12 +11,20 @@ Subcommands:
   teammate stats              — show what's in the brain (file counts by section).
   teammate config show        — print the effective provider config.
   teammate config init        — write a starter `.teammate/config.toml`.
+  teammate doctor [--json]    — diagnostic: config source, reachability,
+                                 model availability, index, proxy/CA env.
 """
 
 from __future__ import annotations
 
+import json as _json
+import os
+import re
+import sqlite3
 import sys
+import time
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -253,6 +261,347 @@ def config_init(provider: str, force: bool) -> None:
             f"teammate will fall back to keyword-only retrieval until v0.4.",
             err=True,
         )
+
+
+# ---------- doctor ----------
+
+
+# Statuses, ordered by severity. The aggregate exit code is driven by the
+# worst status seen across all checks.
+_PASS = "PASS"
+_WARN = "WARN"
+_FAIL = "FAIL"
+
+# user:pass@host shape inside an http(s) URL. Captures the scheme so we can
+# preserve it; everything between scheme and `@` is the credential pair.
+_PROXY_CREDS_RE = re.compile(r"(https?://)[^:/@]+:[^@]+@")
+
+
+def _redact_proxy_url(value: str) -> str:
+    """Strip ``user:pass`` from any http(s) URL embedded in ``value``.
+
+    Applied to ``HTTPS_PROXY`` / ``HTTP_PROXY`` / ``NO_PROXY``. ``NO_PROXY``
+    won't carry creds in practice, but uniform handling is cheaper than
+    asymmetry — and the regex is a no-op on credential-free strings.
+    """
+    if not value:
+        return value
+    return _PROXY_CREDS_RE.sub(r"\1***:***@", value)
+
+
+def _check_result(
+    name: str, status: str, summary: str, **details: Any
+) -> dict[str, Any]:
+    return {"name": name, "status": status, "summary": summary, "details": details}
+
+
+def _safe_check(name: str, fn) -> dict[str, Any]:
+    """Run a check function, converting any uncaught exception into a FAIL.
+
+    Each check is responsible for returning a dict with ``status`` /
+    ``summary`` / ``details``. If it raises, we still produce a structured
+    record so JSON output stays well-formed.
+    """
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001 — diagnostic surface, never raise
+        return _check_result(name, _FAIL, f"check raised: {exc.__class__.__name__}: {exc}")
+
+
+def _check_config(brain_root: Path) -> dict[str, Any]:
+    cfg = load_config(brain_root)
+    return _check_result(
+        "config",
+        _PASS,
+        f"source={cfg.config_source}  llm={cfg.llm.provider}:{cfg.llm.model}  "
+        f"embedding={cfg.embedding.provider}:{cfg.embedding.model}",
+        config_source=cfg.config_source,
+        llm_provider=cfg.llm.provider,
+        llm_model=cfg.llm.model,
+        embedding_provider=cfg.embedding.provider,
+        embedding_model=cfg.embedding.model,
+    )
+
+
+def _check_brain(brain_root: Path) -> dict[str, Any]:
+    brain = Brain(brain_root)
+    if brain.exists():
+        return _check_result(
+            "brain", _PASS, f"CLAUDE.md present at {brain_root}",
+            brain_root=str(brain_root),
+        )
+    return _check_result(
+        "brain",
+        _WARN,
+        f"no CLAUDE.md at {brain_root} (running outside a brain repo?)",
+        brain_root=str(brain_root),
+    )
+
+
+def _measure_reachability(provider) -> tuple[bool, float | None, str]:
+    """Run ``is_up()`` with a wall-clock timer. Returns (up, latency_ms, host)."""
+    host = getattr(provider, "host", "") or ""
+    start = time.perf_counter()
+    up = provider.is_up()
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    return bool(up), elapsed_ms, host
+
+
+def _check_provider_reachable(label: str, provider) -> dict[str, Any]:
+    if provider is None:
+        return _check_result(
+            label, _WARN, "provider disabled (none) — fallback to keyword search",
+            host=None, latency_ms=None,
+        )
+    up, latency_ms, host = _measure_reachability(provider)
+    status = _PASS if up else _FAIL
+    summary = (
+        f"{host}  {latency_ms:.0f} ms" if up else f"{host}  unreachable ({latency_ms:.0f} ms)"
+    )
+    return _check_result(
+        label, status, summary,
+        host=host, latency_ms=round(latency_ms, 1) if latency_ms is not None else None,
+        up=up,
+    )
+
+
+def _check_models(cfg: TeammateConfig, llm, embedder) -> dict[str, Any]:
+    """Only meaningful for Ollama (the one provider with `list_models`).
+
+    The ABCs don't define `list_models` — we duck-check it. For non-Ollama
+    providers (none, or future v0.4 backends) we return WARN with a note.
+    """
+    candidates = [p for p in (llm, embedder) if p is not None]
+    ollama_like = [p for p in candidates if hasattr(p, "list_models")]
+    if not ollama_like:
+        return _check_result(
+            "models", _WARN,
+            "skipped — neither provider exposes list_models()",
+            available=None, missing=None,
+        )
+    # All Ollama-like providers in v0.3 share a host; query whichever we have.
+    probe = ollama_like[0]
+    try:
+        available = probe.list_models()
+    except Exception as exc:  # noqa: BLE001
+        return _check_result(
+            "models", _WARN,
+            f"could not list models from {getattr(probe, 'host', '?')}: {exc}",
+            available=None, missing=None,
+        )
+    wanted = {cfg.llm.model, cfg.embedding.model} - {""}
+    missing = sorted(w for w in wanted if w and w not in available)
+    if not missing:
+        return _check_result(
+            "models", _PASS,
+            f"{', '.join(sorted(wanted))} all pulled",
+            available=available, missing=[],
+        )
+    return _check_result(
+        "models", _WARN,
+        f"missing on the mirror: {', '.join(missing)} — pull them on the host",
+        available=available, missing=missing,
+    )
+
+
+def _check_index(brain_root: Path, cfg: TeammateConfig, embedder) -> dict[str, Any]:
+    """Read ``index_meta`` directly. Don't use ``open_index(embedder=...)`` —
+    that would *raise* ``IndexVersionMismatch`` and abort the report. We
+    want the mismatch as a soft WARN here, not a fatal exception.
+    """
+    db_path = brain_root / ".teammate-cache" / "vault.sqlite"
+    if not db_path.exists():
+        return _check_result(
+            "index", _WARN,
+            "no index yet — run `teammate index` to build it",
+            db_path=str(db_path), exists=False,
+        )
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            meta = dict(conn.execute("SELECT key, value FROM index_meta").fetchall())
+            try:
+                chunk_count = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+            except sqlite3.OperationalError:
+                chunk_count = 0
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError as exc:
+        return _check_result(
+            "index", _FAIL, f"corrupt sqlite at {db_path}: {exc}",
+            db_path=str(db_path),
+        )
+
+    stored_provider = meta.get("provider", "")
+    stored_model = meta.get("embedding_model", "")
+    stored_dim = meta.get("embedding_dim", "")
+    stored_version = meta.get("teammate_version", "")
+    stored_created = meta.get("created_at", "")
+
+    # Compare against the configured embedder if present.
+    if embedder is not None:
+        cfg_model = embedder.model_id
+        cfg_dim = str(embedder.dim)
+        if (stored_model, stored_dim) != (cfg_model, cfg_dim):
+            return _check_result(
+                "index", _WARN,
+                f"stamp mismatch: stored=({stored_model}, {stored_dim}d) "
+                f"current=({cfg_model}, {cfg_dim}d) — run `teammate index --rebuild`",
+                provider=stored_provider, model=stored_model, dim=stored_dim,
+                chunks=chunk_count, teammate_version=stored_version,
+                created_at=stored_created,
+            )
+
+    return _check_result(
+        "index", _PASS,
+        f"provider={stored_provider} model={stored_model} dim={stored_dim} "
+        f"chunks={chunk_count}",
+        provider=stored_provider, model=stored_model, dim=stored_dim,
+        chunks=chunk_count, teammate_version=stored_version,
+        created_at=stored_created,
+    )
+
+
+_PROXY_ENV_VARS = (
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_FILE",
+    "REQUESTS_CA_BUNDLE",
+    "HTTPX_VERIFY",
+)
+
+
+def _check_proxy_env() -> dict[str, Any]:
+    """Print effective proxy/CA env. Redact creds. Always PASS — informational.
+
+    Reads both upper and lower-case forms (httpx accepts either); the
+    upper-case wins by convention.
+    """
+    seen: dict[str, str] = {}
+    for var in _PROXY_ENV_VARS:
+        raw = os.environ.get(var) or os.environ.get(var.lower())
+        if raw:
+            seen[var] = _redact_proxy_url(raw) if "PROXY" in var else raw
+    if not seen:
+        return _check_result(
+            "proxy", _PASS, "no proxy / CA env detected",
+            env={},
+        )
+    pieces = [f"{k}={v}" for k, v in seen.items()]
+    return _check_result(
+        "proxy", _PASS, "  ".join(pieces),
+        env=seen,
+    )
+
+
+def _check_runtime() -> dict[str, Any]:
+    py = ".".join(str(x) for x in sys.version_info[:3])
+    return _check_result(
+        "runtime", _PASS,
+        f"python={py}  teammate={__version__}",
+        python=py, teammate=__version__,
+    )
+
+
+def _aggregate_exit_code(checks: list[dict[str, Any]]) -> int:
+    statuses = {c["status"] for c in checks}
+    if _FAIL in statuses:
+        return 1
+    if _WARN in statuses:
+        return 2
+    return 0
+
+
+def _render_report(checks: list[dict[str, Any]]) -> None:
+    """Pretty-print to stdout via rich, one row per check. No JSON here."""
+    from rich.console import Console
+    from rich.text import Text
+
+    console = Console()
+    console.print(f"[bold]teammate doctor v{__version__}[/bold]\n")
+    style = {_PASS: "green", _WARN: "yellow", _FAIL: "red"}
+    for c in checks:
+        tag = Text(f"[{c['status']}]", style=style.get(c["status"], "white"))
+        line = Text.assemble(tag, " ", Text(f"{c['name']:<22}", style="bold"),
+                             Text(c["summary"]))
+        console.print(line)
+    overall = _aggregate_exit_code(checks)
+    if overall == 0:
+        console.print("\n[bold green]OK[/bold green]")
+    elif overall == 2:
+        console.print("\n[bold yellow]WARN[/bold yellow] — verify these are intentional.")
+    else:
+        console.print("\n[bold red]FAIL[/bold red] — at least one critical check failed.")
+
+
+def _build_report(brain_root: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Run all checks, return (ordered_results, aggregate_dict)."""
+    checks: list[dict[str, Any]] = []
+    # Load config once — every other check depends on it.
+    cfg_check = _safe_check("config", lambda: _check_config(brain_root))
+    checks.append(cfg_check)
+    try:
+        cfg = load_config(brain_root)
+    except Exception:  # noqa: BLE001
+        cfg = None  # type: ignore[assignment]
+
+    checks.append(_safe_check("brain", lambda: _check_brain(brain_root)))
+
+    llm = embedder = None
+    if cfg is not None:
+        try:
+            llm = load_llm_provider(cfg.llm)
+        except Exception:  # noqa: BLE001
+            llm = None
+        try:
+            embedder = load_embedding_provider(cfg.embedding)
+        except Exception:  # noqa: BLE001
+            embedder = None
+
+    checks.append(_safe_check(
+        "llm.reachable", lambda: _check_provider_reachable("llm.reachable", llm),
+    ))
+    checks.append(_safe_check(
+        "embedding.reachable",
+        lambda: _check_provider_reachable("embedding.reachable", embedder),
+    ))
+    if cfg is not None:
+        checks.append(_safe_check(
+            "models", lambda: _check_models(cfg, llm, embedder),
+        ))
+        checks.append(_safe_check(
+            "index", lambda: _check_index(brain_root, cfg, embedder),
+        ))
+    checks.append(_safe_check("proxy", _check_proxy_env))
+    checks.append(_safe_check("runtime", _check_runtime))
+
+    aggregate = {
+        "version": __version__,
+        "brain_root": str(brain_root),
+        "exit_code": _aggregate_exit_code(checks),
+        "checks": checks,
+    }
+    return checks, aggregate
+
+
+@main.command()
+@click.option("--json", "as_json", is_flag=True,
+              help="Emit a machine-readable JSON report (no ANSI).")
+def doctor(as_json: bool) -> None:
+    """Diagnostic — config, reachability, models, index, proxy/CA env.
+
+    Returns exit 0 (all PASS), 1 (any FAIL), or 2 (only WARNs).
+    """
+    brain_root = Path(os.environ.get("TEAMMATE_BRAIN_ROOT") or Path.cwd())
+    checks, aggregate = _build_report(brain_root)
+    if as_json:
+        # Pure JSON — no rich, no ANSI. The smoke test pipes us into
+        # `python -m json.tool`, which fails on stray escape sequences.
+        click.echo(_json.dumps(aggregate, indent=2, sort_keys=True, default=str))
+    else:
+        _render_report(checks)
+    sys.exit(_aggregate_exit_code(checks))
 
 
 if __name__ == "__main__":
