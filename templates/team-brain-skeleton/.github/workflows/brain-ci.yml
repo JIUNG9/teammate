@@ -1,18 +1,26 @@
 name: Brain CI
 
-# Validates and pre-builds the team-brain index on every push to main.
-# Runs three jobs:
+# Validates and pre-builds the team-brain index.
+#
+# Jobs:
 #   1. md-lint     — markdownlint over all .md files
 #   2. link-check  — verifies internal markdown links resolve
-#   3. build-index — runs Ollama in a container, builds sqlite-vec
-#                    index, attaches as a Release artifact so engineers
-#                    can `teammate index pull` instead of re-embedding.
+#   3. validate    — `teammate validate` shape check on every push
+#   4. pr-comment  — `teammate adopt --dry-run` plan posted to the PR
+#   5. build-index — runs Ollama in a container, builds sqlite-vec index,
+#                    attaches as a Release artifact on tags + weekly cron.
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly Monday 06:00 UTC — keeps the artifact fresh even if no push happens.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
 
 jobs:
   md-lint:
@@ -34,11 +42,52 @@ jobs:
           args: --offline --verbose --no-progress './**/*.md'
           fail: true
 
+  validate:
+    name: teammate validate (shape check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install teammate
+        run: |
+          python -m pip install --upgrade pip
+          pip install 'claude-teammate[rag]'
+      - name: Run validate
+        run: teammate validate
+
+  pr-comment:
+    name: Post adopt --dry-run plan as PR comment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install teammate
+        run: |
+          python -m pip install --upgrade pip
+          pip install 'claude-teammate[rag]'
+      - name: Generate migration plan
+        run: teammate adopt --dry-run --output MIGRATION-PLAN.md
+      - name: Post plan as PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr comment "$PR_NUMBER" --body-file MIGRATION-PLAN.md
+
   build-index:
     name: Build team-brain index (release artifact)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    needs: [md-lint, link-check]
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    needs: [md-lint, link-check, validate]
     permissions:
       contents: write
     steps:
@@ -49,24 +98,25 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install teammate (read-only mode)
+      - name: Install teammate
         run: |
           python -m pip install --upgrade pip
-          pip install claude-teammate
+          pip install 'claude-teammate[rag]'
 
-      - name: Install + start Ollama
-        run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          ollama serve &
-          sleep 5
-          ollama pull nomic-embed-text
-
-      - name: Build sqlite-vec index
+      # Note: CI does NOT install Ollama. The Release artifact is a
+      # keyword-only index (no embeddings) — a starter index for new
+      # joiners. Engineers re-embed locally on `teammate init` with their
+      # own Ollama. We avoid `curl | sh` from a public OSS workflow on
+      # principle (supply-chain surface).
+      - name: Build sqlite-vec index (keyword-only, no embeddings)
         run: |
           teammate index --rebuild --output team-brain-index.sqlite
 
-      - name: Upload as release artifact
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload as release artifact (tags + weekly cron)
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule'
         uses: softprops/action-gh-release@v2
         with:
           files: team-brain-index.sqlite
+          tag_name: brain-index-${{ github.run_number }}
+          name: Team brain index ${{ github.run_number }}
+          generate_release_notes: false

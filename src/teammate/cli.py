@@ -6,6 +6,12 @@ Subcommands:
                                  from the bundled template. One-time per org.
   teammate init               — ENGINEER: set up teammate inside an
                                  already-cloned team-brain repo.
+  teammate adopt              — mid-project file migration. Walk an existing
+                                 project, classify markdown, fill template
+                                 gaps. ``--dry-run`` default; ``--apply`` opt-in.
+  teammate validate           — read-only structural check: CLAUDE.md presence
+                                 + size, link resolution, orphan files,
+                                 non-canonical paths, frontmatter.
   teammate ask "<query>"      — query the brain locally (provider + RAG).
   teammate index [--rebuild]  — rebuild / refresh the local sqlite-vec index.
   teammate stats              — show what's in the brain (file counts by section).
@@ -29,6 +35,7 @@ from typing import Any
 import click
 
 from teammate import __version__
+from teammate.adopt import adopt as run_adopt
 from teammate.brain import Brain
 from teammate.config import (
     ProviderConfig,
@@ -49,6 +56,7 @@ from teammate.rag.index import (
     discover_indexable_files,
     index_paths,
 )
+from teammate.validate import validate as run_validate
 
 
 @click.group()
@@ -261,6 +269,114 @@ def config_init(provider: str, force: bool) -> None:
             f"teammate will fall back to keyword-only retrieval until v0.4.",
             err=True,
         )
+
+
+# ---------- adopt ----------
+
+
+@main.command()
+@click.option("--apply", "do_apply", is_flag=True,
+              help="Actually copy template gap files. Without it, runs as a dry-run.")
+@click.option("--dry-run", "force_dry_run", is_flag=True,
+              help="Force dry-run mode (default). Cannot be combined with --apply.")
+@click.option("--include", "includes", multiple=True,
+              help="Extra paths to include (repeat for multiple). Extends defaults.")
+@click.option("--exclude", "excludes", multiple=True,
+              help="Extra paths to exclude (repeat for multiple). Extends defaults.")
+@click.option("--max-claude-md-kb", type=int, default=4, show_default=True,
+              help="CLAUDE.md size budget. Larger files trigger a split suggestion.")
+@click.option("--output", "output_path", type=click.Path(path_type=Path),
+              default=Path("MIGRATION-PLAN.md"), show_default=True,
+              help="Where to write the human-readable plan.")
+def adopt(
+    do_apply: bool,
+    force_dry_run: bool,
+    includes: tuple[str, ...],
+    excludes: tuple[str, ...],
+    max_claude_md_kb: int,
+    output_path: Path,
+) -> None:
+    """Walk this project and classify markdown into a team-brain layout.
+
+    Default is dry-run: no files are touched. Pass ``--apply`` to copy
+    template gap files into place. Existing content is never moved or
+    merged automatically — move suggestions are surfaced for human action.
+    """
+    if do_apply and force_dry_run:
+        click.echo("Cannot combine --apply with --dry-run.", err=True)
+        sys.exit(1)
+    brain_root = Path.cwd()
+    try:
+        plan = run_adopt(
+            brain_root,
+            dry_run=not do_apply,
+            apply=do_apply,
+            include=list(includes),
+            exclude=list(excludes),
+            max_claude_md_kb=max_claude_md_kb,
+        )
+    except RuntimeError as exc:
+        click.echo(f"adopt: {exc}", err=True)
+        sys.exit(1)
+    md = plan.to_markdown()
+    try:
+        output_path.write_text(md, encoding="utf-8")
+    except OSError as exc:
+        click.echo(f"failed to write plan: {exc}", err=True)
+        sys.exit(1)
+    mode = "APPLY" if do_apply else "DRY-RUN"
+    click.echo(f"teammate adopt — {mode} — wrote plan to {output_path}")
+    click.echo(
+        f"  KEEP={len(plan.by_action('KEEP'))}  ADD={len(plan.by_action('ADD'))}  "
+        f"MOVE_SUGGESTED={len(plan.by_action('MOVE_SUGGESTED'))}  "
+        f"REVIEW={len(plan.by_action('REVIEW'))}  "
+        f"SKIP_PER_ENGINEER={len(plan.by_action('SKIP_PER_ENGINEER'))}"
+    )
+    if do_apply:
+        click.echo(f"  MIGRATION.md written at {brain_root / 'MIGRATION.md'}")
+
+
+# ---------- validate ----------
+
+
+@main.command()
+@click.option("--json", "as_json", is_flag=True,
+              help="Emit a machine-readable JSON report (no ANSI).")
+@click.option("--max-claude-md-kb", type=int, default=4, show_default=True,
+              help="Soft size budget for CLAUDE.md (WARN if exceeded).")
+def validate(as_json: bool, max_claude_md_kb: int) -> None:
+    """Read-only structural check of the brain.
+
+    Exit codes: 0 on all-PASS, 1 on any FAIL, 2 on only-WARN.
+    """
+    brain_root = Path(os.environ.get("TEAMMATE_BRAIN_ROOT") or Path.cwd())
+    report = run_validate(brain_root, max_claude_md_kb=max_claude_md_kb)
+    if as_json:
+        click.echo(report.to_json())
+    else:
+        from rich.console import Console
+        from rich.text import Text
+
+        console = Console()
+        console.print(f"[bold]teammate validate v{__version__}[/bold]\n")
+        style = {"PASS": "green", "WARN": "yellow", "FAIL": "red"}
+        for c in report.checks:
+            tag = Text(f"[{c.status}]", style=style.get(c.status, "white"))
+            line = Text.assemble(
+                tag, " ", Text(f"{c.name:<30}", style="bold"), Text(c.summary)
+            )
+            console.print(line)
+        if report.overall == "PASS":
+            console.print("\n[bold green]OK[/bold green]")
+        elif report.overall == "WARN":
+            console.print(
+                "\n[bold yellow]WARN[/bold yellow] — verify these are intentional."
+            )
+        else:
+            console.print(
+                "\n[bold red]FAIL[/bold red] — at least one critical check failed."
+            )
+    sys.exit(report.exit_code)
 
 
 # ---------- doctor ----------

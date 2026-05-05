@@ -224,6 +224,28 @@ git push
 # CI re-builds the index, your teammates get it on their next pull
 ```
 
+### Mid-project adoption
+
+Already have markdown scattered across `docs/`, `wiki/`, `runbooks/`?
+
+```bash
+teammate adopt              # dry-run, writes MIGRATION-PLAN.md
+teammate adopt --apply      # fills template gaps; refuses dirty git tree
+```
+
+See [`docs/ADOPT.md`](docs/ADOPT.md) for discovery rules, plan format, and
+the rationale behind the git-cleanliness gate.
+
+### Shape-checking the brain
+
+```bash
+teammate validate           # exit 0 PASS, 1 FAIL, 2 WARN
+teammate validate --json    # machine-readable for CI
+```
+
+Catches missing CLAUDE.md, dangling links, orphan files, binary blobs, and
+unparseable frontmatter. See [`docs/VALIDATE.md`](docs/VALIDATE.md).
+
 ### When something doesn't work
 
 ```bash

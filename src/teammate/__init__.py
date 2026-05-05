@@ -23,4 +23,4 @@ Optional layers:
 Local-first by design. No cloud round-trip. No API keys at install.
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
