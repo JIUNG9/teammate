@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0] — 2026-05-07
+
+### Added
+- **Colleague agent** — `src/teammate/agent/` package with 3 routines:
+  - `weekly_digest` — runs `validate` + `doctor`, generates Slack-ready report.
+  - `orphan_triage` — classifies orphan markdown files (keep / move / archive).
+  - `pr_migration_plan` — `adopt --dry-run` against a PR diff for posting as a PR comment.
+- `teammate agent run <name>` — local invocation; primarily called by `/schedule` runners.
+- `teammate memory-import` — harvest team-relevant facts from `~/.claude/` memory into a review draft. **REVERSED safety bias**: every entry defaults to SKIP; opt-in to import. Read-only on `~/.claude/`.
+- `teammate memory-export` — departing-engineer flow; dumps team-relevant memory as a handover artifact.
+- `docs/AGENT.md`, `docs/MEMORY-IMPORT.md`, `docs/MEMORY-EXPORT.md`.
+- `templates/team-brain-skeleton/.gitignore` — excludes `pending-imports/` and `.teammate-agent/` by default.
+- `examples/agent-routines.json`, `examples/memory-import-draft.md`, `examples/handover-template.md`.
+- 64 new tests; total now 188 passing.
+
+### Notes
+- Agent NEVER auto-mutates the brain. Routines stage drafts; the runner (Anthropic-cloud `/schedule` or self-hosted) opens issues / posts to Slack with scoped tokens.
+- Memory-import never modifies `~/.claude/`. Redaction pre-pass flags emails / internal hostnames / employer-name patterns; user confirms per entry. The `[ ] IMPORT THIS` box stays unchecked even when the heuristic flags an entry as obviously team-relevant — opt-in is the only path.
+- `memory-import` discovers Claude Code's nested layout: when `<root>/MEMORY.md` is absent, it digs into `<root>/projects/<id>/memory/MEMORY.md`. Multi-project users should pass `--memory-root` explicitly to pick the right one.
+- `memory-import --interactive` is reserved for v0.6 (no per-entry CLI prompts in v0.5). The default `--non-interactive` flow — write a draft, edit by hand, commit — is the only path that ships. The safety property is identical either way: every checkbox starts unchecked.
+
 ## [0.4.0] — 2026-05-05
 
 ### Added

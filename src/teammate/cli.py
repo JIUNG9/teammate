@@ -19,6 +19,14 @@ Subcommands:
   teammate config init        — write a starter `.teammate/config.toml`.
   teammate doctor [--json]    — diagnostic: config source, reachability,
                                  model availability, index, proxy/CA env.
+  teammate agent run <name>   — run a colleague-agent routine locally
+                                 (mainly invoked by `/schedule` runners).
+  teammate memory-import      — harvest team-relevant facts from
+                                 ``~/.claude/`` memory into a review draft.
+                                 Default for every entry is SKIP — opt in
+                                 to import. Read-only on ``~/.claude/``.
+  teammate memory-export      — departing-engineer flow; dump team-relevant
+                                 memory as a handover artifact.
 """
 
 from __future__ import annotations
@@ -718,6 +726,174 @@ def doctor(as_json: bool) -> None:
     else:
         _render_report(checks)
     sys.exit(_aggregate_exit_code(checks))
+
+
+# ---------- agent ----------
+
+
+@main.group()
+def agent() -> None:
+    """Colleague-agent routines (judgment work, not CI shape checks)."""
+
+
+@agent.command("run")
+@click.argument("name", type=str)
+@click.option("--out-dir", "out_dir", type=click.Path(path_type=Path),
+              default=None,
+              help="Where the routine drops its report. Default: <brain>/.teammate-agent/.")
+@click.option("--dry-run/--no-dry-run", default=True, show_default=True,
+              help="Routine still writes its file; --no-dry-run lets the runner "
+                   "take side effects on top.")
+@click.option("--pr-number", type=int, default=0,
+              help="For pr_migration_plan — PR number to label the output.")
+@click.option("--pr-files", "pr_files", multiple=True,
+              help="For pr_migration_plan — repeat for each path in the PR diff.")
+def agent_run(
+    name: str,
+    out_dir: Path | None,
+    dry_run: bool,
+    pr_number: int,
+    pr_files: tuple[str, ...],
+) -> None:
+    """Run colleague-agent routine NAME (e.g. weekly_digest)."""
+    from teammate.agent.base import RoutineConfig
+    from teammate.agent.runner import list_routines, run_routine
+
+    brain_root = Path(os.environ.get("TEAMMATE_BRAIN_ROOT") or Path.cwd())
+    if name not in list_routines():
+        click.echo(
+            f"unknown routine: {name!r}. Known: {', '.join(list_routines())}",
+            err=True,
+        )
+        sys.exit(2)
+    target_dir = out_dir if out_dir is not None else brain_root / ".teammate-agent"
+    extra: dict[str, Any] = {}
+    if name == "pr_migration_plan":
+        extra = {"pr_number": pr_number, "pr_files": list(pr_files)}
+    cfg = RoutineConfig(
+        brain_root=brain_root,
+        out_dir=Path(target_dir),
+        dry_run=dry_run,
+        extra=extra,
+    )
+    try:
+        result = run_routine(name, cfg)
+    except KeyError as exc:
+        click.echo(f"agent: {exc}", err=True)
+        sys.exit(2)
+    click.echo(f"[{result.status}] {result.name} — {result.summary}")
+    for art in result.artifacts:
+        click.echo(f"  artifact: {art}")
+    if result.status == "fail":
+        sys.exit(1)
+
+
+# ---------- memory-import ----------
+
+
+@main.command("memory-import")
+@click.option("--memory-root", "memory_root", type=click.Path(path_type=Path),
+              default=None,
+              help="Path to the user's `~/.claude/` memory dir. Default: discover via env.")
+@click.option("--user", "user_name", default=None,
+              help="Label for the draft filename. Default: $USER.")
+@click.option("--interactive/--non-interactive", default=False, show_default=True,
+              help="Reserved — v0.5 always writes a non-interactive draft you "
+                   "edit by hand. Both modes write the same draft.")
+def memory_import(
+    memory_root: Path | None,
+    user_name: str | None,
+    interactive: bool,
+) -> None:
+    """Stage a memory-import draft from ``~/.claude/`` for human review.
+
+    Reversed safety bias: every entry defaults to SKIP. The CLI never
+    auto-imports — the user opts in per entry by checking the box on the
+    generated draft file. ``~/.claude/`` is read-only.
+    """
+    from teammate.memory_import import harvest_user_memory, write_plan
+
+    brain_root = Path(os.environ.get("TEAMMATE_BRAIN_ROOT") or Path.cwd())
+    if memory_root is None:
+        # Default: assume the user has ~/.claude/. We don't try to walk
+        # the project-id subdirs in v0.5 — the user passes the right
+        # --memory-root if they have multiple.
+        memory_root = Path.home() / ".claude"
+    if not memory_root.exists():
+        click.echo(
+            f"memory-import: memory root not found at {memory_root}. "
+            f"Pass --memory-root to point at your `~/.claude/` directory.",
+            err=True,
+        )
+        sys.exit(1)
+    user_label = user_name or os.environ.get("USER") or "user"
+
+    plan = harvest_user_memory(
+        memory_root=memory_root,
+        brain_root=brain_root,
+        user=user_label,
+    )
+    out_path = write_plan(plan)
+    click.echo(f"memory-import: wrote draft to {out_path}")
+    click.echo(
+        f"  entries surfaced: {len(plan.entries)}  "
+        f"(every box is unchecked — opt in per entry to import)"
+    )
+
+
+# ---------- memory-export ----------
+
+
+@main.command("memory-export")
+@click.option("--memory-root", "memory_root", type=click.Path(path_type=Path),
+              default=None,
+              help="Path to the user's `~/.claude/` memory dir. Default: ~/.claude.")
+@click.option("--out-dir", "out_dir", type=click.Path(path_type=Path),
+              default=None,
+              help="Where to drop the handover. Default: cwd.")
+@click.option("--user", "user_name", default=None,
+              help="Label for the handover filename. Default: $USER.")
+@click.option("--since", "since", default=None,
+              help="Filter: keep entries with year stamp >= YYYY (and all unstamped).")
+@click.option("--no-redact", is_flag=True,
+              help="Skip the redaction pass. Internal hostnames + emails stay verbatim.")
+def memory_export(
+    memory_root: Path | None,
+    out_dir: Path | None,
+    user_name: str | None,
+    since: str | None,
+    no_redact: bool,
+) -> None:
+    """Produce a departing-engineer handover from ``~/.claude/`` memory.
+
+    Includes TEAM_RULE / TEAM_FACT / REFERENCE entries by default;
+    PERSONAL entries are excluded. ``--no-redact`` keeps the original
+    text; the default pass replaces internal-hostname / email matches
+    with generic placeholders.
+    """
+    from teammate.memory_export import export_for_handover, write_handover
+
+    if memory_root is None:
+        memory_root = Path.home() / ".claude"
+    if not memory_root.exists():
+        click.echo(
+            f"memory-export: memory root not found at {memory_root}. "
+            f"Pass --memory-root to point at your `~/.claude/` directory.",
+            err=True,
+        )
+        sys.exit(1)
+    user_label = user_name or os.environ.get("USER") or "user"
+    target_dir = out_dir if out_dir is not None else Path.cwd()
+
+    plan = export_for_handover(
+        memory_root=memory_root,
+        user=user_label,
+        since=since,
+        redact=not no_redact,
+    )
+    out_path = write_handover(plan, target_dir)
+    click.echo(f"memory-export: wrote handover to {out_path}")
+    click.echo(f"  entries: {len(plan.entries)}  redacted: {plan.redact}")
 
 
 if __name__ == "__main__":

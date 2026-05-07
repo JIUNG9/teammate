@@ -1,0 +1,12 @@
+# teammate's local-only artifacts.
+.teammate-cache/
+.teammate-agent/
+
+# v0.5: memory-import drafts. Default-skip safety bias means most teams
+# won't want these in PR review — they contain raw personal-memory
+# excerpts that the user is reviewing for opt-in. Remove this entry
+# locally if your team explicitly wants drafts in PRs.
+pending-imports/
+
+# Per-engineer Claude Code state — never team-shareable.
+.claude/settings.local.json

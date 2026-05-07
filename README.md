@@ -256,6 +256,43 @@ teammate doctor --json   # same, machine-readable for CI
 For deployment behind a corporate proxy or with an internal Ollama mirror,
 see [`docs/CORPORATE.md`](docs/CORPORATE.md).
 
+### Colleague agent
+
+CI shape-checks the brain on every push. The agent does the judgment
+work — orphan triage, weekly digests, PR-time migration plans — that
+CI can't.
+
+```bash
+teammate agent run weekly_digest --out-dir .teammate-agent
+teammate agent run orphan_triage --out-dir .teammate-agent
+teammate agent run pr_migration_plan --pr-number 42 --pr-files docs/runbooks/x.md
+```
+
+Routines stage markdown reports; a `/schedule` runner (Anthropic cloud
+or self-hosted) is what posts them to Slack / opens issues / drops PR
+comments. The agent itself never mutates the brain. See
+[`docs/AGENT.md`](docs/AGENT.md).
+
+### Memory import / export
+
+Personal `~/.claude/` memory accumulates facts the team could use —
+service ownership, why we picked X, on-call quirks. Two flows:
+
+```bash
+# Active engineer — pull team-relevant facts into a review draft.
+# Default for every entry is SKIP — opt-in per entry to import.
+teammate memory-import --memory-root ~/.claude
+
+# Departing engineer — dump team-relevant memory as a handover.
+teammate memory-export --memory-root ~/.claude --user alice
+```
+
+Both commands are read-only on `~/.claude/`. The import flow has a
+**reversed safety bias**: every checkbox in the draft starts unchecked,
+even when the heuristic is confident an entry is team-relevant. See
+[`docs/MEMORY-IMPORT.md`](docs/MEMORY-IMPORT.md) and
+[`docs/MEMORY-EXPORT.md`](docs/MEMORY-EXPORT.md).
+
 ---
 
 ## Architecture

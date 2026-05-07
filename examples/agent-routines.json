@@ -1,0 +1,47 @@
+{
+  "$schema_comment": "Sample config for an Anthropic-cloud /schedule runner (or any cron-driven runner) calling teammate agent routines. The runner reads this file, picks routines whose 'cron' fires now, runs `teammate agent run <name>`, and distributes the resulting markdown files to Slack / GitHub / wherever via its own scoped tokens.",
+  "version": 1,
+  "brain_root": "/srv/team-brain",
+  "out_dir": "/srv/team-brain/.teammate-agent",
+  "routines": [
+    {
+      "name": "weekly_digest",
+      "cron": "0 9 * * 1",
+      "description": "Monday 09:00 UTC. Posts the Slack chunk to #team-brain.",
+      "distribution": {
+        "slack": {
+          "channel": "#team-brain",
+          "extract": "post_to_slack_chunk"
+        }
+      }
+    },
+    {
+      "name": "orphan_triage",
+      "cron": "0 3 * * *",
+      "description": "Nightly 03:00 UTC. Stages one issue body per orphan; the runner opens / updates the issues.",
+      "distribution": {
+        "github_issues": {
+          "repo": "your-org/team-brain",
+          "label": "brain-orphan",
+          "title_prefix": "[brain] orphan triage:"
+        }
+      }
+    },
+    {
+      "name": "pr_migration_plan",
+      "trigger": "pull_request",
+      "description": "Fires on PR open / synchronize. The runner provides pr_number + pr_files.",
+      "distribution": {
+        "pr_comment": {
+          "repo": "your-org/team-brain",
+          "marker": "<!-- teammate-agent: pr_migration_plan -->"
+        }
+      }
+    }
+  ],
+  "notes": [
+    "The agent itself never holds a token. The runner reads each artifact file the agent stages, then makes the API calls itself with its own scoped credentials.",
+    "If the agent fails (process error, brain unreachable), the runner reports the failure to the team channel without taking a side effect.",
+    "Routines are read-only on the brain. They never run `git commit` or `git push`."
+  ]
+}
