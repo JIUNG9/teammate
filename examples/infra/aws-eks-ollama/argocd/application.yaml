@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ollama
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/managed-by: teammate-phase-b
+  annotations:
+    # Sync wave 0: this app installs into a fresh namespace; nothing
+    # else in the platform sync graph depends on it. Ollama itself
+    # tolerates being absent — every consumer (teammate, agents) will
+    # fail closed (keyword-only retrieval) until Ollama is back.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    # Update repoURL + path to wherever your team checks in the
+    # ../k8s/ directory. The example below assumes you've copied this
+    # whole tree into your platform repo at infra/ollama/.
+    repoURL: https://your-team.local/your-org/team-platform.git
+    targetRevision: HEAD
+    path: infra/ollama/k8s
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: teammate
+  syncPolicy:
+    # Manual sync is intentional. The Phase B doc explains why:
+    # workload health (Ollama OOM under sudden traffic) is exactly
+    # the failure mode you want a human to confirm before the
+    # auto-loop notices and retries. Flip to `automated:` once
+    # you've measured rollout behaviour.
+    automated: null
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

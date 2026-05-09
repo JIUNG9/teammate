@@ -16,14 +16,22 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from teammate.agent.base import RoutineConfig, RoutineResult
+from teammate.agent.confluence_sync import run as _confluence_sync_run
+from teammate.agent.jira_sync import run as _jira_sync_run
 from teammate.agent.orphan_triage import run as _orphan_triage_run
 from teammate.agent.pr_migration_plan import run as _pr_migration_plan_run
+from teammate.agent.slack_sync import run as _slack_sync_run
+from teammate.agent.web_pull import run as _web_pull_run
 from teammate.agent.weekly_digest import run as _weekly_digest_run
 
 _REGISTRY: dict[str, Callable[[RoutineConfig], RoutineResult]] = {
     "weekly_digest": _weekly_digest_run,
     "orphan_triage": _orphan_triage_run,
     "pr_migration_plan": _pr_migration_plan_run,
+    "confluence_sync": _confluence_sync_run,
+    "jira_sync": _jira_sync_run,
+    "slack_sync": _slack_sync_run,
+    "web_pull": _web_pull_run,
 }
 
 

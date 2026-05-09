@@ -1228,5 +1228,123 @@ def audit(since: str | None, query_grep: str | None, limit: int, as_json: bool) 
         )
 
 
+# ---------- sync (v0.8) ----------
+
+
+_SYNC_ROUTINES = ("confluence", "jira", "slack", "web")
+_SYNC_ROUTINE_TO_NAME = {
+    "confluence": "confluence_sync",
+    "jira": "jira_sync",
+    "slack": "slack_sync",
+    "web": "web_pull",
+}
+
+
+def _read_sync_section(brain_root: Path, name: str) -> dict[str, Any]:
+    """Read ``[sync.<name>]`` from the repo's ``.teammate/config.toml``.
+
+    We don't go through ``TeammateConfig`` here — sync configs are
+    free-form (lists of dicts, allowlist arrays) and do not belong on
+    the typed dataclass. Returning a plain dict keeps the change
+    boundary inside cli.py.
+    """
+    import tomllib
+
+    cfg_path = brain_root / ".teammate" / "config.toml"
+    if not cfg_path.is_file():
+        return {}
+    try:
+        with cfg_path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    sync_section = data.get("sync") or {}
+    if not isinstance(sync_section, dict):
+        return {}
+    section = sync_section.get(name) or {}
+    return section if isinstance(section, dict) else {}
+
+
+def _default_sync_out_dir(brain_root: Path, routine: str) -> Path:
+    import datetime as _dt
+
+    today = _dt.date.today().isoformat()
+    return brain_root / "pending-imports" / f"{routine}-{today}"
+
+
+@main.group()
+def sync() -> None:
+    """MCP-source sync routines — Confluence, Jira, Slack, Web (v0.8).
+
+    Each subcommand stages PR-ready markdown drafts under
+    ``pending-imports/<routine>-<date>/`` (or ``--out-dir``). The agent
+    never auto-merges; humans review the draft files.
+    """
+
+
+def _run_sync(routine: str, out_dir: Path | None, dry_run: bool) -> None:
+    from teammate.agent.base import RoutineConfig
+    from teammate.agent.runner import run_routine
+
+    if routine not in _SYNC_ROUTINES:
+        click.echo(f"unknown sync routine: {routine!r}", err=True)
+        sys.exit(2)
+    name = _SYNC_ROUTINE_TO_NAME[routine]
+    brain_root = Path(os.environ.get("TEAMMATE_BRAIN_ROOT") or Path.cwd())
+    extra = _read_sync_section(brain_root, routine)
+    target_dir = out_dir if out_dir is not None else _default_sync_out_dir(brain_root, routine)
+
+    if dry_run:
+        click.echo(
+            f"[dry-run] would run {name} with config from "
+            f"`.teammate/config.toml` [sync.{routine}] "
+            f"and write to {target_dir}"
+        )
+        # Still surface the config so the user sees what would have run.
+        click.echo(f"[dry-run] keys present in config: {sorted(extra.keys())}")
+        return
+
+    cfg = RoutineConfig(
+        brain_root=brain_root,
+        out_dir=Path(target_dir),
+        dry_run=dry_run,
+        extra=extra,
+    )
+    try:
+        result = run_routine(name, cfg)
+    except KeyError as exc:
+        click.echo(f"sync: {exc}", err=True)
+        sys.exit(2)
+    click.echo(f"[{result.status}] {result.name} — {result.summary}")
+    for art in result.artifacts:
+        click.echo(f"  artifact: {art}")
+    if result.status == "fail":
+        sys.exit(1)
+
+
+def _sync_subcommand(routine: str):
+    """Build a click subcommand for one sync routine."""
+
+    @sync.command(routine, help=f"Pull from {routine} sources and stage PR drafts.")
+    @click.option(
+        "--out-dir", "out_dir", type=click.Path(path_type=Path), default=None,
+        help="Where to drop the staged drafts. "
+             "Default: pending-imports/<routine>-<YYYY-MM-DD>/.",
+    )
+    @click.option(
+        "--dry-run/--no-dry-run", default=False, show_default=True,
+        help="Show what would happen without writing anything.",
+    )
+    def _cmd(out_dir: Path | None, dry_run: bool) -> None:
+        _run_sync(routine, out_dir, dry_run)
+
+    _cmd.__name__ = f"sync_{routine}"
+    return _cmd
+
+
+for _r in _SYNC_ROUTINES:
+    _sync_subcommand(_r)
+
+
 if __name__ == "__main__":
     main()

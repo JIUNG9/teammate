@@ -1,0 +1,101 @@
+{
+  "$schema_comment": "Sample config for an Anthropic-cloud /schedule runner (or any cron-driven runner) calling teammate's v0.8 sync routines. The runner reads this file, picks routines whose 'cron' fires now, runs `teammate sync <name>`, and stages the resulting markdown files as a PR via its own scoped tokens. The agent itself never holds tokens; this file is what the runner consumes to know which sources to pull and where to drop the staged drafts.",
+  "version": 1,
+  "brain_root": "/srv/team-brain",
+  "out_dir": "/srv/team-brain/pending-imports",
+  "routines": [
+    {
+      "name": "confluence_sync",
+      "cron": "0 4 * * 1",
+      "description": "Monday 04:00 UTC. Pulls the declared Confluence pages and stages a PR.",
+      "config": {
+        "pages": [
+          {
+            "space": "ENG",
+            "title": "Deploy runbook",
+            "url": "https://acme-corp.atlassian.net/wiki/spaces/ENG/pages/1",
+            "body": "<h1>Deploy</h1><p>...</p>",
+            "revision": "v17"
+          },
+          {
+            "space": "OPS",
+            "title": "On-call escalation",
+            "url": "https://acme-corp.atlassian.net/wiki/spaces/OPS/pages/2",
+            "body": "<p>...</p>",
+            "revision": "v8"
+          }
+        ]
+      },
+      "distribution": {
+        "github_pr": {
+          "repo": "your-org/team-brain",
+          "branch_prefix": "sync/confluence-",
+          "marker": "<!-- teammate-agent: confluence_sync -->"
+        }
+      }
+    },
+    {
+      "name": "jira_sync",
+      "cron": "0 4 * * 1",
+      "description": "Monday 04:00 UTC. Pulls Jira issues matching the configured JQL and stages a PR.",
+      "config": {
+        "issues": [
+          {
+            "key": "PLAT-123",
+            "project": "PLAT",
+            "summary": "Migrate to PG16",
+            "status": "In Progress",
+            "description": "<p>Plan</p>",
+            "url": "https://acme.atlassian.net/browse/PLAT-123",
+            "updated": "2026-05-01T10:00:00Z"
+          }
+        ]
+      },
+      "distribution": {
+        "github_pr": {
+          "repo": "your-org/team-brain",
+          "branch_prefix": "sync/jira-"
+        }
+      }
+    },
+    {
+      "name": "slack_sync",
+      "cron": "0 4 * * *",
+      "description": "Daily 04:00 UTC. Pulls pinned messages from the declared Slack channels.",
+      "config": {
+        "channels": ["#oncall", "#incidents"],
+        "pins": []
+      },
+      "distribution": {
+        "github_pr": {
+          "repo": "your-org/team-brain",
+          "branch_prefix": "sync/slack-"
+        }
+      }
+    },
+    {
+      "name": "web_pull",
+      "cron": "0 5 * * 0",
+      "description": "Sunday 05:00 UTC. Pulls a curated allowlist of public docs into the brain.",
+      "config": {
+        "urls": [
+          "https://docs.aws.amazon.com/eks/latest/userguide/clusters.html",
+          "https://kubernetes.io/docs/concepts/workloads/pods/"
+        ],
+        "allowlist_domains": ["docs.aws.amazon.com", "kubernetes.io"]
+      },
+      "distribution": {
+        "github_pr": {
+          "repo": "your-org/team-brain",
+          "branch_prefix": "sync/web-"
+        }
+      }
+    }
+  ],
+  "notes": [
+    "The agent never holds tokens. The runner reads each artifact file the agent stages and opens the PR with its own scoped credentials.",
+    "Every sync routine writes PR drafts only — humans review and merge.",
+    "web_pull enforces a domain allowlist by default. Empty allowlist refuses everything (default-deny).",
+    "Slack pins are pre-resolved by the runner via the user's existing Slack MCP server. The agent only formats them."
+  ]
+}

@@ -41,12 +41,21 @@ def _seed_brain(root: Path) -> None:
 # ---------- runner ----------
 
 
-def test_runner_lists_three_routines():
+def test_runner_lists_all_routines():
     routines = list_routines()
-    assert "weekly_digest" in routines
-    assert "orphan_triage" in routines
-    assert "pr_migration_plan" in routines
-    assert len(routines) == 3
+    # v0.5: weekly_digest, orphan_triage, pr_migration_plan
+    # v0.8: + confluence_sync, jira_sync, slack_sync, web_pull
+    for expected in (
+        "weekly_digest",
+        "orphan_triage",
+        "pr_migration_plan",
+        "confluence_sync",
+        "jira_sync",
+        "slack_sync",
+        "web_pull",
+    ):
+        assert expected in routines, f"missing routine: {expected}"
+    assert len(routines) == 7
 
 
 def test_runner_unknown_routine_raises_keyerror(tmp_path: Path):

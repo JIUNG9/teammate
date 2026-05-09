@@ -340,6 +340,41 @@ Phase 1 (heuristic) runs by default; Phase 2 (LLM judge) is opt-in via
 `[contradiction] use_llm_judge`. See
 [`docs/CONTRADICTION.md`](docs/CONTRADICTION.md).
 
+### MCP integrations — Confluence, Jira, Slack, Web
+
+Sources of truth that aren't git stay where they are. Teammate syncs
+them into the brain on a slow loop, with PR review:
+
+```bash
+teammate sync confluence    # pulls Confluence pages → markdown
+teammate sync jira          # pulls Jira issues → decision-record drafts
+teammate sync slack         # pulls pinned messages from declared channels
+teammate sync web           # generic HTTPS → markdown, with domain allowlist
+```
+
+Each routine reads `[sync.<name>]` from `.teammate/config.toml` and
+stages markdown drafts under `pending-imports/<routine>-<date>/`.
+The agent never auto-merges; a human turns drafts into real
+`docs/runbooks/...` content via a normal PR. `web_pull` is
+default-deny — an empty `allowlist_domains` refuses every URL. See
+[`docs/MCP-INTEGRATIONS.md`](docs/MCP-INTEGRATIONS.md).
+
+### Phase B — Ollama on EKS (opt-in)
+
+Phase A (every engineer runs Ollama on their laptop) is the OSS
+default. Once a team grows past five-ish engineers and laptop drift
+becomes painful, the team-shared deployment in
+`examples/infra/aws-eks-ollama/` graduates the inference plane onto
+EKS:
+
+- Terraform module for the durable primitives (namespace, PVC, SA)
+- ArgoCD Application + raw k8s manifests for the workload
+- Init Job pre-pulls `llama3.2:3b` + `nomic-embed-text` on first sync
+
+See [`docs/PHASE-B-OLLAMA.md`](docs/PHASE-B-OLLAMA.md) for when to
+graduate, the architecture rationale, and a step-by-step deployment
+guide.
+
 ### Memory import / export
 
 Personal `~/.claude/` memory accumulates facts the team could use —

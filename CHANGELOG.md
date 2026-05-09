@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.8.0] — 2026-05-09
+
+### Added
+- **MCP integrations** — 4 new agent routines:
+  - `confluence_sync` — pulls Confluence pages, stages PR drafts
+  - `jira_sync` — pulls Jira issues by JQL, stages decision-record drafts
+  - `slack_sync` — pulls pinned messages from declared channels
+  - `web_pull` — generic HTTP→markdown with domain allowlist
+- `teammate sync confluence|jira|slack|web` — CLI invocation for the routines
+- **Phase B Ollama infrastructure** — `examples/infra/aws-eks-ollama/`:
+  - Terraform module (Namespace + PVC + ServiceAccount)
+  - ArgoCD Application manifest
+  - Raw k8s manifests for `kubectl apply` path (Deployment + Service + HPA + init Job)
+  - Step-by-step deployment README
+- `docs/MCP-INTEGRATIONS.md`, `docs/PHASE-B-OLLAMA.md`
+- `examples/sync-routines.json` — sample `/schedule` runner config for the four routines
+- 50+ new tests; total now 370+
+
+### Notes
+- All sync routines are PR-staging only. Agent never auto-merges. Humans review.
+- `web_pull` enforces a domain allowlist by default; refuses URLs outside the list. Empty allowlist refuses everything (default-deny).
+- Phase B Ollama is opt-in — Phase A (laptop Ollama) remains the OSS default. The infra is shipped as examples for teams who want centralized hosting.
+- Atlassian MCP / Slack MCP integration uses your existing MCP server config; teammate doesn't ship its own MCP servers.
+- `httpx` is lazy-imported in the sync routines so OSS users on the core install (`pip install claude-teammate`) can still load the agent runner without the `[rag]` extra.
+
 ## [0.7.0] — 2026-05-08
 
 ### Added
