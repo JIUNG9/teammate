@@ -1603,5 +1603,156 @@ def impact_list(
     console.print(table)
 
 
+# ---------- brain-pulse (v0.10) ----------
+
+
+@main.command("brain-pulse")
+@click.option("--since", "since_str", default="24h", show_default=True,
+              help="Look-back window. Examples: 30s / 5m / 24h / 7d.")
+@click.option("--user", "user_email", default=None,
+              help="Override the engineer email. Default: git config user.email.")
+@click.option("--invalidations-root", "invalidations_root",
+              type=click.Path(path_type=Path), default=None,
+              help="Override the on-disk path to the brain-invalidations repo.")
+@click.option("--staging-dir", "staging_dir",
+              type=click.Path(path_type=Path), default=None,
+              help="Where the agent staged draft PRs. "
+                   "Default: <brain>/.teammate-agent/draft-prs/.")
+@click.option("--json", "as_json", is_flag=True,
+              help="Emit machine-readable JSON for scripting.")
+def brain_pulse(
+    since_str: str,
+    user_email: str | None,
+    invalidations_root: Path | None,
+    staging_dir: Path | None,
+    as_json: bool,
+) -> None:
+    """The engineer's morning ritual — targeted invalidations, brain changes, drafts.
+
+    Aggregates the three signals an SRE wants at the top of the day:
+
+      1. Resources YOU worked on with recent invalidations.
+      2. Brain page changes the team made (last 24h by default).
+      3. Pending PR-staged drafts the agent has produced.
+
+    Read-only. Safe to run with no brain / no invalidations / no
+    drafts present — emits an empty report and exits 0.
+    """
+    from teammate.brain_pulse import collect, parse_duration
+
+    brain_root = Path(os.environ.get("TEAMMATE_BRAIN_ROOT") or Path.cwd())
+    try:
+        since = parse_duration(since_str)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--since") from exc
+
+    pulse = collect(
+        brain_root,
+        user_email=user_email,
+        since=since,
+        since_label=since_str,
+        invalidations_root=invalidations_root,
+        staging_dir=staging_dir,
+    )
+
+    if as_json:
+        click.echo(_json.dumps(pulse.to_dict(), indent=2, sort_keys=True))
+        return
+
+    _render_brain_pulse(pulse)
+
+
+def _render_brain_pulse(pulse) -> None:  # type: ignore[no-untyped-def]
+    """Rich-rendered dashboard for ``teammate brain-pulse``."""
+    from rich.console import Console
+
+    console = Console()
+    rule = "─" * 45
+    console.print()
+    console.print(f"[bold]Brain Pulse — last {pulse.since}[/bold]")
+    console.print(rule)
+    console.print(
+        f"  user: [cyan]{pulse.user_email or '(no git user.email — use --user)'}[/cyan]"
+    )
+    console.print()
+
+    # 1) Targeted invalidations
+    n_t = len(pulse.targeted)
+    label_color = "yellow" if n_t else "dim"
+    console.print(
+        f"  [{label_color}]Resources YOU worked on with recent invalidations:"
+        f"      [{n_t}][/{label_color}]"
+    )
+    if not pulse.targeted:
+        console.print("     [dim](none)[/dim]")
+    else:
+        for t in pulse.targeted:
+            sev = t.severity.upper()
+            sev_style = {
+                "CRITICAL": "[bold red]",
+                "HIGH": "[red]",
+                "MEDIUM": "[yellow]",
+                "LOW": "[dim]",
+            }.get(sev, "")
+            close = "[/]" if sev_style else ""
+            console.print(
+                f"     - {t.resource} — {t.age_human}  "
+                f"{sev_style}severity: {sev}{close}"
+            )
+            console.print(f"       affecting: {t.page}")
+            if t.pr_hint:
+                console.print(f"       hint: {t.pr_hint}")
+    console.print()
+
+    # 2) Brain changes
+    n_c = len(pulse.brain_changes)
+    console.print(f"  Brain page changes (last {pulse.since}):                   [{n_c}]")
+    if not pulse.brain_changes:
+        console.print("     [dim](none)[/dim]")
+    else:
+        # Show first 5 entries — full list with --since 7d
+        for c in pulse.brain_changes[:5]:
+            console.print(
+                f"     - {c.author}: {c.path} ({c.kind})"
+            )
+        if n_c > 5:
+            console.print(
+                f"     ... ({n_c - 5} more — use --since 7d for full week)"
+            )
+    console.print()
+
+    # 3) Pending drafts
+    n_d = len(pulse.pending_drafts)
+    console.print(f"  Pending PR-staged drafts (auto_pr_drafter):                [{n_d}]")
+    if not pulse.pending_drafts:
+        console.print("     [dim](none)[/dim]")
+    else:
+        for d in pulse.pending_drafts:
+            console.print(
+                f"     - {d.original_path} "
+                f"(invalidation {d.invalidation_id}, severity {d.severity})"
+            )
+        console.print(
+            "     run `gh pr review --request <id>` to triage."
+        )
+    console.print()
+
+    if pulse.filtered_count:
+        console.print(
+            f"  [dim]Filtered as not-relevant-to-you: "
+            f"                 [{pulse.filtered_count}][/dim]"
+        )
+        console.print()
+
+    if pulse.recommended_actions:
+        console.print("[bold]Today's recommended actions:[/bold]")
+        for i, action in enumerate(pulse.recommended_actions, start=1):
+            console.print(f"  {i}. {action}")
+        console.print()
+
+    console.print("Run `teammate ask \"...\"` to dig deeper.")
+    console.print(rule)
+
+
 if __name__ == "__main__":
     main()

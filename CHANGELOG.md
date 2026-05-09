@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.10.0] — 2026-05-09
+
+### Added — scale automation (the agent-as-k8s-controller pattern)
+- Four new agent routines that scale to 100+ colleagues without daemons:
+  - `invalidation_digest` — daily per-engineer email targeted by git activity
+  - `targeted_radar` — for HIGH-severity events, identifies 3-5 most-relevant engineers via git-history scoring
+  - `pr_review_assist` — auto-comments on PRs touching brain-referenced resources
+  - `auto_pr_drafter` — drafts auto-PRs for HIGH-severity events; never auto-merges
+- `teammate brain-pulse` — engineer's morning ritual CLI: targeted invalidations, brain changes, pending PR drafts, recommended actions. `--json` for scripting.
+- `docs/SCALE-AUTOMATION.md` — full architecture + the k8s-controller analogy.
+- 36+ new tests; total now 480+.
+
+### The architectural property of v0.10
+- Total routines: 11 (3 from v0.5 + 4 from v0.8 sync + 4 from v0.10 scale).
+- Each is a finite cron job — exits when done. NO daemon.
+- Workload scales linearly with #events, NOT with #engineers.
+- Agent never auto-mutates the brain; PRs staged for human review.
+
+### What this completes
+v0.10 closes the loop:
+- v0.3-v0.7: substrate, scoring, naming convention, adapter MVP — the foundation.
+- v0.8: MCP integrations (Confluence/Jira/Slack/web) + Phase B Ollama — sources + hosting.
+- v0.9: event-driven invalidation — the freshness layer.
+- v0.10: scale automation — making the freshness layer reach the right engineer at the right time, without daemons.
+
+The team-brain product that wins at 3 AM is the one willing to say "I don't know" — and v0.10 ships the smart agent that ensures the brain knows what it doesn't know, and tells the right person.
+
 ## [0.9.0] — 2026-05-09
 
 ### Added

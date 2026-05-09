@@ -9,18 +9,29 @@ using whatever scoped tokens the runner holds.
 
 The agent itself does *none* of the distribution. That's why this
 module is intentionally tiny: dispatch + return.
+
+Registry (v0.10): 11 routines.
+
+  v0.5:    weekly_digest, orphan_triage, pr_migration_plan
+  v0.8:    confluence_sync, jira_sync, slack_sync, web_pull
+  v0.10:   invalidation_digest, targeted_radar,
+           pr_review_assist, auto_pr_drafter
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
+from teammate.agent.auto_pr_drafter import run as _auto_pr_drafter_run
 from teammate.agent.base import RoutineConfig, RoutineResult
 from teammate.agent.confluence_sync import run as _confluence_sync_run
+from teammate.agent.invalidation_digest import run as _invalidation_digest_run
 from teammate.agent.jira_sync import run as _jira_sync_run
 from teammate.agent.orphan_triage import run as _orphan_triage_run
 from teammate.agent.pr_migration_plan import run as _pr_migration_plan_run
+from teammate.agent.pr_review_assist import run as _pr_review_assist_run
 from teammate.agent.slack_sync import run as _slack_sync_run
+from teammate.agent.targeted_radar import run as _targeted_radar_run
 from teammate.agent.web_pull import run as _web_pull_run
 from teammate.agent.weekly_digest import run as _weekly_digest_run
 
@@ -32,6 +43,10 @@ _REGISTRY: dict[str, Callable[[RoutineConfig], RoutineResult]] = {
     "jira_sync": _jira_sync_run,
     "slack_sync": _slack_sync_run,
     "web_pull": _web_pull_run,
+    "invalidation_digest": _invalidation_digest_run,
+    "targeted_radar": _targeted_radar_run,
+    "pr_review_assist": _pr_review_assist_run,
+    "auto_pr_drafter": _auto_pr_drafter_run,
 }
 
 

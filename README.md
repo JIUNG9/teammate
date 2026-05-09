@@ -405,6 +405,31 @@ See [`docs/PHASE-B-OLLAMA.md`](docs/PHASE-B-OLLAMA.md) for when to
 graduate, the architecture rationale, and a step-by-step deployment
 guide.
 
+### Scale automation
+
+The team-brain product wins at 3 AM by saying "I don't know" — and
+v0.10 closes the loop by telling the right engineer when there's now
+something to know. Four agent routines (`invalidation_digest`,
+`targeted_radar`, `pr_review_assist`, `auto_pr_drafter`) scale with
+**events**, not **engineers**: workload stays flat as the team grows
+to 100+. None of them is a daemon — each is a finite cron job that
+exits. None of them auto-mutates the brain — every PR is staged for
+human review.
+
+Plus a new morning-ritual CLI:
+
+```bash
+teammate brain-pulse              # what changed in YOUR scope last 24h
+teammate brain-pulse --since 7d   # widen to a week
+teammate brain-pulse --json       # machine-readable for scripts
+```
+
+`brain-pulse` aggregates targeted invalidations, brain page changes,
+and pending PR-staged drafts into one screen. See
+[`docs/SCALE-AUTOMATION.md`](docs/SCALE-AUTOMATION.md) for the full
+architecture, the k8s-controller analogy, and the trust split between
+the agent and the runner.
+
 ### Memory import / export
 
 Personal `~/.claude/` memory accumulates facts the team could use —
