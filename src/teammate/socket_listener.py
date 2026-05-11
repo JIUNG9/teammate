@@ -27,12 +27,13 @@ Fail-fast behavior:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-import time
 import threading
+import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +67,8 @@ def _route_message(text: str) -> str | None:
 def _create_k8s_job(routine: str, source: str = "slack-socket") -> bool:
     """Create a K8s Job from the CronJob template for the given routine."""
     try:
-        from kubernetes import client as k8s_client, config as k8s_config
+        from kubernetes import client as k8s_client
+        from kubernetes import config as k8s_config
     except ImportError:
         log.error("kubernetes package not installed — cannot create Job")
         return False
@@ -129,7 +131,7 @@ def _create_k8s_job(routine: str, source: str = "slack-socket") -> bool:
 def _heartbeat_thread(stop: threading.Event) -> None:
     heartbeat_path = Path("/tmp/teammate-heartbeat")
     while not stop.is_set():
-        heartbeat_path.write_text(datetime.now(timezone.utc).isoformat())
+        heartbeat_path.write_text(datetime.now(UTC).isoformat())
         stop.wait(30)
 
 
@@ -188,7 +190,7 @@ def _poll_jira_confluence(interval: int, stop: threading.Event, last_seen: dict)
 
         if conf_url and confluence_spaces:
             try:
-                since = (datetime.now(timezone.utc) - timedelta(minutes=2)).strftime(
+                since = (datetime.now(UTC) - timedelta(minutes=2)).strftime(
                     "%Y-%m-%dT%H:%M:%S.000Z"
                 )
                 spaces_cql = ", ".join(f'"{s}"' for s in confluence_spaces)
@@ -226,10 +228,10 @@ def run(poll_interval: int = 60, fail_on_disconnect: bool = True) -> int:
     Returns exit code: 0 = clean stop, 1 = fatal disconnect.
     """
     try:
+        from slack_sdk import WebClient
         from slack_sdk.socket_mode import SocketModeClient
         from slack_sdk.socket_mode.request import SocketModeRequest
         from slack_sdk.socket_mode.response import SocketModeResponse
-        from slack_sdk import WebClient
     except ImportError:
         log.error("slack-sdk not installed. Run: pip install 'claude-teammate[listen]'")
         return 1
@@ -294,14 +296,12 @@ def run(poll_interval: int = 60, fail_on_disconnect: bool = True) -> int:
             log.info("Slack → routine=%s text=%r", routine, text[:80])
             created = _create_k8s_job(routine, source="slack-socket")
             if created:
-                try:
+                with contextlib.suppress(Exception):
                     web_client.reactions_add(
                         channel=event["channel"],
                         timestamp=event["ts"],
                         name="white_check_mark",
                     )
-                except Exception:
-                    pass
 
     while True:
         try:
