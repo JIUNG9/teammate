@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.2] — 2026-05-12
+
+### Added — daily_digest routine
+- New `daily_digest` agent routine — gathers last 24h of activity across:
+  - Confluence pages in `CONFLUENCE_WATCHER_SPACES`
+  - Jira issues matching `JIRA_DIGEST_JQL` (default: `updated > -24h`)
+  - Slack messages > 30 chars in `TEAMMATE_DIGEST_SLACK_CHANNELS`
+- Posts a summary to **Slack** (`TEAMMATE_DIGEST_SLACK_CHANNEL`)
+- Creates/updates a **Confluence rolling page** (in-place update each day) +
+  a new **archive child page** (`title — YYYY-MM-DD`) under
+  `TEAMMATE_DIGEST_PARENT_PAGE_ID` in space `TEAMMATE_DIGEST_SPACE_ID`
+- Includes a minimal Markdown → Confluence storage-format converter
+  (headings, lists, links, bold/italic, inline code)
+- Designed to run as a daily CronJob (00:00 UTC = 09:00 KST)
+
+This is the first routine that breaks the "agent stages files, runner distributes"
+pattern — it publishes directly because the destination is fixed. Other routines
+remain stage-only.
+
+### Registry
+Total routines now: **12** (was 11).
+
 ## [0.11.1] — 2026-05-12
 
 ### Fixed

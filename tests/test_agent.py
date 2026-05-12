@@ -47,6 +47,7 @@ def test_runner_lists_all_routines():
     # v0.8: + confluence_sync, jira_sync, slack_sync, web_pull
     # v0.10: + invalidation_digest, targeted_radar,
     #         pr_review_assist, auto_pr_drafter
+    # v0.11.2: + daily_digest
     for expected in (
         "weekly_digest",
         "orphan_triage",
@@ -59,9 +60,10 @@ def test_runner_lists_all_routines():
         "targeted_radar",
         "pr_review_assist",
         "auto_pr_drafter",
+        "daily_digest",
     ):
         assert expected in routines, f"missing routine: {expected}"
-    assert len(routines) == 11
+    assert len(routines) == 12
 
 
 def test_runner_unknown_routine_raises_keyerror(tmp_path: Path):

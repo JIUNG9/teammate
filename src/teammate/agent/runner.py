@@ -25,6 +25,7 @@ from collections.abc import Callable
 from teammate.agent.auto_pr_drafter import run as _auto_pr_drafter_run
 from teammate.agent.base import RoutineConfig, RoutineResult
 from teammate.agent.confluence_sync import run as _confluence_sync_run
+from teammate.agent.daily_digest import run as _daily_digest_run
 from teammate.agent.invalidation_digest import run as _invalidation_digest_run
 from teammate.agent.jira_sync import run as _jira_sync_run
 from teammate.agent.orphan_triage import run as _orphan_triage_run
@@ -47,6 +48,7 @@ _REGISTRY: dict[str, Callable[[RoutineConfig], RoutineResult]] = {
     "targeted_radar": _targeted_radar_run,
     "pr_review_assist": _pr_review_assist_run,
     "auto_pr_drafter": _auto_pr_drafter_run,
+    "daily_digest": _daily_digest_run,
 }
 
 
