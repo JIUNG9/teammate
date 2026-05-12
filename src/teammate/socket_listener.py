@@ -397,6 +397,16 @@ def run(poll_interval: int = 60, fail_on_disconnect: bool = True) -> int:
     poll_thread.start()
 
     reconnect_attempts = 0
+    initial_connect_announced = False
+
+    notify_channel = os.environ.get("TEAMMATE_LIFECYCLE_NOTIFY_CHANNEL", "")
+
+    def _notify_lifecycle(text: str) -> None:
+        """Post a single connect/disconnect lifecycle line. Silent if no channel."""
+        if not notify_channel:
+            return
+        with contextlib.suppress(Exception):
+            web_client.chat_postMessage(channel=notify_channel, text=text)
 
     def _handle(client: SocketModeClient, req: SocketModeRequest) -> None:
         nonlocal reconnect_attempts
@@ -418,31 +428,10 @@ def run(poll_interval: int = 60, fail_on_disconnect: bool = True) -> int:
             return
 
         log.info("Slack → routine=%s text=%r", routine, text[:80])
-        job_name = _create_k8s_job(routine, source="slack-socket")
-
-        if job_name:
-            # Optional thumbs-up reaction (needs reactions:write scope)
-            with contextlib.suppress(Exception):
-                web_client.reactions_add(
-                    channel=event["channel"],
-                    timestamp=event["ts"],
-                    name="white_check_mark",
-                )
-            # Watcher reports completion (or failure with log tail) back as thread reply
-            watcher = threading.Thread(
-                target=_watch_job_and_notify,
-                args=(job_name, routine, web_client, event["channel"], event["ts"]),
-                daemon=True,
-            )
-            watcher.start()
-        else:
-            # Job creation failed — surface it so the user isn't left wondering
-            with contextlib.suppress(Exception):
-                web_client.chat_postMessage(
-                    channel=event["channel"],
-                    thread_ts=event["ts"],
-                    text=f":warning: Could not start `{routine}` — it may already be running, or check listener logs.",
-                )
+        # Quiet mode: fire and forget. No per-Job Slack chatter. Outcome lives
+        # in kubectl logs / job status. Lifecycle notifications below cover
+        # connect/disconnect events only.
+        _create_k8s_job(routine, source="slack-socket")
 
     while True:
         try:
@@ -452,6 +441,11 @@ def run(poll_interval: int = 60, fail_on_disconnect: bool = True) -> int:
             Path("/tmp/teammate-ready").write_text("ok")
             scope = ", ".join(watch_channels) if watch_channels else "all channels"
             log.info("Slack Socket Mode connected (watching: %s)", scope)
+            if not initial_connect_announced:
+                _notify_lifecycle(
+                    f":white_check_mark: teammate listener connected — watching `{scope}`"
+                )
+                initial_connect_announced = True
             reconnect_attempts = 0
 
             while sm_client.is_connected():
@@ -465,6 +459,10 @@ def run(poll_interval: int = 60, fail_on_disconnect: bool = True) -> int:
         reconnect_attempts += 1
         if reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
             log.error("Socket Mode failed %d times — giving up", reconnect_attempts)
+            _notify_lifecycle(
+                f":x: teammate listener disconnected after "
+                f"{reconnect_attempts} reconnect attempts. Pod restarting."
+            )
             stop_event.set()
             return 1 if fail_on_disconnect else 0
 
