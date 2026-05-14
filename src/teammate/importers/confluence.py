@@ -66,7 +66,9 @@ class ConfluenceImporter(ImporterBase):
             except Exception:
                 log.warning("cannot parse watermark %r — doing a full scan", since)
 
-        cql = " AND ".join(clauses)
+        # ORDER BY lastmodified ASC so watermark-resume works:
+        # latest-processed = max watermark, no overlap on next run.
+        cql = " AND ".join(clauses) + " ORDER BY lastmodified ASC"
         log.info("confluence: CQL=%r", cql)
 
         with httpx.Client(auth=self.auth, timeout=30) as client:

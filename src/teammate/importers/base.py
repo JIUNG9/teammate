@@ -101,6 +101,9 @@ class ImporterBase(ABC):
 
     # ----- run loop -----
 
+    # Save watermark every N items so a killed run can resume.
+    CHECKPOINT_EVERY = 100
+
     def run(self) -> ImportResult:
         state = self._load_state()
         since = state.get(self.source_name, {}).get("watermark")
@@ -108,6 +111,7 @@ class ImporterBase(ABC):
 
         result = ImportResult(source=self.source_name)
         max_watermark = since
+        last_checkpoint_at = 0
 
         for item in self.iterate(since):
             try:
@@ -123,6 +127,21 @@ class ImporterBase(ABC):
             except Exception as exc:
                 log.warning("%s: render/write error: %s", self.source_name, exc)
                 result.errors += 1
+
+            # Incremental checkpoint — so a killed run resumes near where it died.
+            written_or_skipped = result.written + result.skipped
+            if (
+                not self.dry_run
+                and max_watermark is not None
+                and written_or_skipped - last_checkpoint_at >= self.CHECKPOINT_EVERY
+            ):
+                state.setdefault(self.source_name, {})["watermark"] = str(max_watermark)
+                state[self.source_name]["last_run"] = datetime.now(UTC).isoformat()
+                state[self.source_name]["last_checkpoint_count"] = written_or_skipped
+                self._save_state(state)
+                last_checkpoint_at = written_or_skipped
+                log.info("%s: checkpoint at %d items, watermark=%s",
+                         self.source_name, written_or_skipped, max_watermark)
 
         result.new_watermark = max_watermark
         if not self.dry_run and max_watermark is not None:

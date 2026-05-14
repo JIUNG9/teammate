@@ -63,7 +63,8 @@ class JiraImporter(ImporterBase):
             except Exception:
                 log.warning("cannot parse watermark %r — doing a full scan", since)
 
-        jql = " AND ".join(clauses) + " ORDER BY updated DESC"
+        # ORDER BY ASC so watermark-resume works: latest-processed = max watermark.
+        jql = " AND ".join(clauses) + " ORDER BY updated ASC"
         log.info("jira: JQL=%r", jql)
 
         next_page_token = None
