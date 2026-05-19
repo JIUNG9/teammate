@@ -1,42 +1,56 @@
-# teammate
+# Vigil  *(formerly **teammate**)*
 
-> **Your team's brain in your team's git repo.** Local-LLM-queryable, Obsidian-friendly, git-federated. The Teamspace alternative for teams who can't put context in someone else's cloud.
+> **A self-hosted DevSecOps command center.** Reliability ops, not chat. Six tabs over a git-backed corpus that auto-imports Jira / Confluence / GitHub / Slack. Engineers' Claude Code reads the brain locally; the dashboard is for the team's collective view. Private-VPC, no SaaS, no per-seat fee.
 
-[![CI](https://github.com/JIUNG9/teammate/actions/workflows/ci.yml/badge.svg)](https://github.com/JIUNG9/teammate/actions/workflows/ci.yml)
+[![CI](https://github.com/JIUNG9/vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/JIUNG9/vigil/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## What this is
+> **About the rename**: this project was originally **teammate** (v0.10 → v4.0.0). Versions 1.0.0+ ship as **Vigil**. The GitHub repo redirects from `JIUNG9/teammate` to `JIUNG9/vigil`; legacy CLI names (`teammate`) keep working as aliases through the v1.x line. The story of the rename — and what we cut to get to v5 — is in [docs/series-7/](docs/series-7/).
 
-A Claude Code plugin that turns a private git repository into your team's queryable brain.
+## What Vigil is
 
-- **The brain lives in git.** A normal private repo. `CLAUDE.md` at the root, `.claude/skills/`, `.claude/rules/`, `docs/`, `knowledge/`. Plain markdown — no proprietary format.
-- **Each engineer has a local index.** `teammate init` indexes every markdown file into a sqlite-vec database on their laptop. ~10 seconds per brain.
-- **Queries are local.** `teammate ask "what's our deploy procedure?"` streams an answer from a local LLM (Ollama) with citations to the markdown files it pulled facts from. No cloud round-trip.
-- **Obsidian works out of the box.** Point Obsidian at the cloned repo and the team's brain becomes a beautiful linked notebook. Nothing to configure.
-- **Sharing is just git.** When someone updates a runbook, they `git push`. When you want the latest brain, you `git pull`. The CI pipeline pre-builds the index as a release artifact for fast onboarding.
+A DevSecOps command center for teams that don't want to put their reliability data in someone else's cloud. Two surfaces:
+
+| Surface | What it does | Who uses it |
+|---|---|---|
+| **Web dashboard** | 6 tabs: SLA / SLO / SLI / MTTD / MTTR / Extra. Multi-account (placen / shared / nw / dp pattern). Adaptive SigNoz watchlists, P0–P3 auto-classification with Slack ⇄ sync, incident analysis workbench with Slack-thread import. | The whole team, plus on-call |
+| **Local sync agent** | A 30-line shell script that clones your team brain repo to `~/.vigil/brain` and `git pull --rebase`s every 60 min. Your existing Claude Code session reads from there directly — no API call needed. | Every engineer on their laptop |
+
+### Three layers, one source of truth
 
 ```
             ┌──────────────────────────────────────────┐
-            │  Team's PRIVATE git repository           │
-            │  (the source of truth)                   │
+            │  Layer 0 — Brain (private git repo)      │
             │                                          │
-            │  CLAUDE.md                               │
-            │  .claude/skills/   .claude/rules/        │
-            │  docs/   knowledge/                      │
-            │  .github/workflows/brain-ci.yml          │
-            └──────────────────────┬───────────────────┘
-                                   │ git clone / pull
-                                   ▼
-            ┌──────────────────────────────────────────┐
-            │  Each engineer's laptop                  │
-            │  (the derived state)                     │
-            │                                          │
-            │  Ollama  +  sqlite-vec index             │
-            │  Claude Code  +  teammate plugin         │
-            │  Obsidian (optional)                     │
-            │  gbrain (optional, auto-detected)        │
-            └──────────────────────────────────────────┘
+            │  archive/{jira,confluence,github,slack}/ │
+            │  (auto-imported every 3 h)               │
+            │  docs/runbooks/ knowledge/ decisions/    │
+            │  watchlist/*.yaml (MTTD rules)           │
+            └─────┬─────────────────────────────┬──────┘
+                  │ git pull (cluster, 5 min)    │ git pull (laptop, 60 min)
+                  ▼                              ▼
+   ┌──────────────────────────────┐   ┌────────────────────────────┐
+   │  Layer 1 — Cluster (in-VPC)  │   │  Layer 2 — Engineer laptop │
+   │                              │   │                            │
+   │  Qdrant + Ollama             │   │  ~/.vigil/brain (markdown) │
+   │  Indexer (single writer)     │   │  Claude Code reads it      │
+   │  Dashboard backend           │   │  via ~/.claude/CLAUDE.md   │
+   │  war-api (MTTR)              │   │  Optional: vigil-incident  │
+   │  Postgres (incident state)   │   │   client-agent (off by     │
+   │  SigNoz APM (existing)       │   │   default; opt-in per inc) │
+   └──────────────────────────────┘   └────────────────────────────┘
 ```
+
+Trust flows one way: Layer 2 → 1 → 0. A compromised laptop can poison one war-room timeline but can't tamper with the corpus or the index.
+
+### Why this and not chat-based brains?
+
+We had a chat panel in v4 (then named *teammate*). Engineers ignored it. They already had Claude Code open; context-switching to a browser tab for a *query* didn't add value. v5 cut the chat tab and re-allocated the engineer-facing surface:
+
+- **Collective views** (oncall, severity dashboards, SLO burn) → web dashboard
+- **Individual reasoning** (an engineer asking "what runbook covers this") → local Claude Code reading `~/.vigil/brain` directly
+
+The brain repo is the same in both. The surfaces are different.
 
 ---
 

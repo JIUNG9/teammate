@@ -1,14 +1,32 @@
-# teammate — Architecture Overview
+# Vigil — Architecture Overview
 
-**Version:** v4.0.0 · **Updated:** 2026-05-15
+**Version:** v5.0.0 (formerly *teammate* v4) · **Updated:** 2026-05-19
 
-teammate is an open-source AI assistant for SRE / DevSecOps teams that unifies ~25,000 documents from Jira, Confluence, GitHub, and Slack into a single queryable corpus, with three modes on top:
+Vigil is an open-source DevSecOps command center for SRE teams. Two surfaces over a 25,000-doc git-backed corpus:
 
-- **Browse** — streaming chat over the brain with per-source confidence
-- **Watch (MTTD)** — rule-based alerts + similarity search of past incidents
-- **War (MTTR)** — auto-pre-loaded war-rooms with client-side Claude agent
+| Surface | What it does |
+|---|---|
+| **Web dashboard** | 6 tabs — **SLA / SLO / SLI / MTTD / MTTR / Extra** — for the team's collective view (oncall, severity dashboards, SLO burn rates, incident analysis workbench) |
+| **Local sync agent** | Clones the brain repo to `~/.vigil/brain` on each engineer's laptop; their Claude Code reads it directly. No API call needed for everyday queries. |
+
+Plus the supporting modes that span both surfaces:
+
+- **MTTD** — adaptive SigNoz watchlists (baseline-learned, auto-applied with revert), rule layer (YAML synced to SigNoz), similarity search over past incidents, P0–P3 auto-classification with bidirectional Slack sync (`:eyes:` → ack, `:white_check_mark:` → resolved, `/vigil priority p1`, etc.)
+- **MTTR** — incident analysis workbench (no more war-room chat panel). Seven pre-loaded panels: LLM summary, similar past incidents, candidate causes (DRAFT-flagged), runbooks, action checklist, participant proposal, live current-state. Four creation paths including Slack-thread import for cases automation missed. Optional client-agent (off by default) mirrors Claude Code tool calls + destructive-action soft-gate.
 
 The brain itself lives in **a private git repo**. Every change is PR-reviewable and `git blame`-attributable.
+
+### What changed v4 → v5 (the rename)
+
+- **v4 was *teammate*** with a chat-centered "browse" mode.
+- **v5 is *Vigil*** — the chat tab is gone. The brain is still there. Engineers' local Claude reads it directly via the sync agent; the dashboard is for collective views (SLA/SLO/SLI dashboards, the MTTD watchlist console, the MTTR workbench).
+- Sync interval moved from hourly → 3-hourly (with a `Sync now` button in the dashboard).
+- War-rooms became an "analysis workbench" page; the in-app chat panel was cut because Slack already does that job.
+- MTTD became *automated by default* (action-first, ratify-after): adaptive baseline learner auto-applies SigNoz rules with revert.
+- New incident path: Slack message → right-click → "Import to Vigil" → LLM + system analysis → MTTR incident.
+- Multi-account aware (placen / shared / nw / dp pattern) via service catalog with `account` column.
+
+The series-7 articles in `docs/series-7/` are the long-form explainer for each change.
 
 ---
 
