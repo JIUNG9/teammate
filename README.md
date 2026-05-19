@@ -62,18 +62,18 @@ Two flows. The team lead runs `scaffold` once. Each engineer runs `init` once pe
 
 You're setting up the brain for your team. You'll do this once for the org.
 
-**1. Install teammate.**
+**1. Install Vigil.**
 
 ```bash
-pip install claude-teammate
+pip install vigil
 # or, if your team already uses Claude Code's plugin marketplace:
-claude plugin install JIUNG9/teammate
+claude plugin install JIUNG9/vigil
 ```
 
 **2. Scaffold an empty team-brain directory.**
 
 ```bash
-teammate scaffold ~/team-brain --team-name "<your-team-name>"
+vigil scaffold ~/team-brain --team-name "<your-team-name>"
 cd ~/team-brain
 ```
 
@@ -116,7 +116,7 @@ The bundled `.github/workflows/brain-ci.yml` does three things on every push to 
 
 - Lints all markdown files (markdownlint).
 - Verifies internal markdown links resolve.
-- Builds the sqlite-vec index in CI and attaches it as a Release artifact when you tag a version. Engineers can `teammate index pull` to skip local re-embedding.
+- Builds the sqlite-vec index in CI and attaches it as a Release artifact when you tag a version. Engineers can `vigil index pull` to skip local re-embedding.
 
 If you tag your first release:
 
@@ -131,7 +131,7 @@ The workflow runs, builds `team-brain-index.sqlite`, attaches it to the GitHub R
 
 That's it on your side. Send the team-brain repo URL to the team. They each follow Flow B.
 
-### Flow B — ENGINEER: set up teammate locally (per-laptop, one-time)
+### Flow B — ENGINEER: set up Vigil locally (per-laptop, one-time)
 
 You're an engineer joining a team that already has a brain. Do this once per laptop.
 
@@ -142,12 +142,12 @@ You're an engineer joining a team that already has a brain. Do this once per lap
 curl -fsSL https://claude.ai/install.sh | sh
 ```
 
-**2. Install teammate.**
+**2. Install Vigil.**
 
 ```bash
-pip install claude-teammate
+pip install vigil
 # or via the Claude Code plugin marketplace:
-claude plugin install JIUNG9/teammate
+claude plugin install JIUNG9/vigil
 ```
 
 **3. Clone the team-brain repo.**
@@ -157,10 +157,10 @@ git clone git@github.com:<your-org>/team-brain.git ~/team-brain
 cd ~/team-brain
 ```
 
-**4. Run `teammate init` from inside the brain.**
+**4. Run `vigil init` from inside the brain.**
 
 ```bash
-teammate init
+vigil init
 ```
 
 This:
@@ -168,7 +168,7 @@ This:
 - Confirms `CLAUDE.md` is present (i.e., this is a team-brain repo).
 - Detects whether Ollama is running. If not, prints the install hint.
 - Detects whether `gbrain` is installed (auto-detected; optional).
-- Indexes every markdown file in the brain into `.teammate-cache/vault.sqlite`. ~10 seconds for a typical brain (dozens to hundreds of markdown files).
+- Indexes every markdown file in the brain into `.vigil-cache/vault.sqlite`. ~10 seconds for a typical brain (dozens to hundreds of markdown files).
 
 **5. (Strongly recommended) Install Ollama for the local LLM.**
 
@@ -180,12 +180,12 @@ ollama pull llama3.2:3b
 ollama pull nomic-embed-text
 ```
 
-Now `teammate ask` works:
+Now `vigil ask` works:
 
 ```bash
-teammate ask "what's our deploy procedure?"
-teammate ask "who owns the auth service?"
-teammate ask "why did we choose Postgres?"
+vigil ask "what's our deploy procedure?"
+vigil ask "who owns the auth service?"
+vigil ask "why did we choose Postgres?"
 ```
 
 You'll get streamed answers grounded in the team's own markdown, with citations to the source files. Everything happens on your laptop.
@@ -196,7 +196,7 @@ You'll get streamed answers grounded in the team's own markdown, with citations 
 # Open Obsidian, choose "Open folder as vault", point at ~/team-brain
 ```
 
-Obsidian's graph view and backlinks work natively because the brain is plain markdown. No teammate-specific Obsidian plugin required.
+Obsidian's graph view and backlinks work natively because the brain is plain markdown. No Vigil-specific Obsidian plugin required.
 
 **7. (Optional) Wire up the Claude Code MCP server.**
 
@@ -205,7 +205,7 @@ If you want Claude Code to be able to query the brain via MCP (recommended), add
 ```json
 {
   "mcpServers": {
-    "teammate-brain": {
+    "vigil-brain": {
       "command": "python",
       "args": ["-m", "teammate.mcp_server"],
       "env": {
@@ -224,18 +224,18 @@ Now Claude Code can read `brain://CLAUDE.md`, `brain://skills/<name>`, `brain://
 
 ```bash
 # Whenever you're unsure
-teammate ask "what's the on-call rotation?"
-teammate ask "summarize ADRs from this quarter"
+vigil ask "what's the on-call rotation?"
+vigil ask "summarize ADRs from this quarter"
 
 # When the team-brain repo has updates from teammates
 cd ~/team-brain && git pull
-teammate init    # re-runs the index (incremental — only re-embeds changed files)
+vigil init    # re-runs the index (incremental — only re-embeds changed files)
 
 # When YOU update something
 echo "..." >> docs/runbooks/new-procedure.md
 git commit -am "runbook: new procedure"
 git push
-# CI re-builds the index, your teammates get it on their next pull
+# CI re-builds the index, your vigils get it on their next pull
 ```
 
 ### Event-driven invalidation
@@ -243,27 +243,27 @@ git push
 The brain is correct on Tuesday. Production changes on Wednesday. The
 brain is now wrong, and nobody knows. v0.9 closes the loop with a
 brain-invalidations event log: a sibling git repo of structured JSON
-events, fed by CloudTrail (or terraform hooks, or `teammate impact emit`),
-read by `teammate ask` at query time.
+events, fed by CloudTrail (or terraform hooks, or `vigil impact emit`),
+read by `vigil ask` at query time.
 
 ```bash
 # Pre-apply hook — block if a recent HIGH event already touched these resources
-teammate impact preview \
+vigil impact preview \
     --resource aws_vpc.shared \
     --resource aws_iam_role.deploy-bot \
     --severity high
 
 # Post-apply hook — write an event the rest of the team will see
-teammate impact emit \
+vigil impact emit \
     --resource aws_vpc.shared --action detach --severity high
 
 # Read recent events
-teammate impact list --since 24h
+vigil impact list --since 24h
 ```
 
-`teammate ask` prepends a banner when retrieved chunks reference a
+`vigil ask` prepends a banner when retrieved chunks reference a
 recently-invalidated resource. Default: HIGH and above. Tunable via
-`[invalidations] show_severity` in `.teammate/config.toml`. See
+`[invalidations] show_severity` in `.vigil/config.toml`. See
 [`docs/IMPACT.md`](docs/IMPACT.md) for the full thesis, the no-daemon
 argument, and the CloudTrail Lambda module shipped under
 [`examples/infra/aws-cloudtrail-hook/`](examples/infra/aws-cloudtrail-hook).
@@ -273,8 +273,8 @@ argument, and the CloudTrail Lambda module shipped under
 Already have markdown scattered across `docs/`, `wiki/`, `runbooks/`?
 
 ```bash
-teammate adopt              # dry-run, writes MIGRATION-PLAN.md
-teammate adopt --apply      # fills template gaps; refuses dirty git tree
+vigil adopt              # dry-run, writes MIGRATION-PLAN.md
+vigil adopt --apply      # fills template gaps; refuses dirty git tree
 ```
 
 See [`docs/ADOPT.md`](docs/ADOPT.md) for discovery rules, plan format, and
@@ -283,8 +283,8 @@ the rationale behind the git-cleanliness gate.
 ### Shape-checking the brain
 
 ```bash
-teammate validate           # exit 0 PASS, 1 FAIL, 2 WARN
-teammate validate --json    # machine-readable for CI
+vigil validate           # exit 0 PASS, 1 FAIL, 2 WARN
+vigil validate --json    # machine-readable for CI
 ```
 
 Catches missing CLAUDE.md, dangling links, orphan files, binary blobs, and
@@ -292,12 +292,12 @@ unparseable frontmatter. See [`docs/VALIDATE.md`](docs/VALIDATE.md).
 
 ### Naming convention
 
-Configure your team's repo / service naming via `.teammate-naming.toml`:
+Configure your team's repo / service naming via `.vigil-naming.toml`:
 
 ```bash
-teammate naming init --template nexus-style    # write starter config
-teammate naming check acme-infra-core-billing-tfmod
-teammate validate --include-naming             # check brain dirs against the rules
+vigil naming init --template nexus-style    # write starter config
+vigil naming check acme-infra-core-billing-tfmod
+vigil validate --include-naming             # check brain dirs against the rules
 ```
 
 See [`docs/NAMING.md`](docs/NAMING.md) for the full spec, the structural
@@ -306,8 +306,8 @@ pattern, and how to migrate from an unmanaged namespace.
 ### When something doesn't work
 
 ```bash
-teammate doctor          # quick diagnostic — reachability, config, models, index, proxy
-teammate doctor --json   # same, machine-readable for CI
+vigil doctor          # quick diagnostic — reachability, config, models, index, proxy
+vigil doctor --json   # same, machine-readable for CI
 ```
 
 For deployment behind a corporate proxy or with an internal Ollama mirror,
@@ -320,9 +320,9 @@ work — orphan triage, weekly digests, PR-time migration plans — that
 CI can't.
 
 ```bash
-teammate agent run weekly_digest --out-dir .teammate-agent
-teammate agent run orphan_triage --out-dir .teammate-agent
-teammate agent run pr_migration_plan --pr-number 42 --pr-files docs/runbooks/x.md
+vigil agent run weekly_digest --out-dir .vigil-agent
+vigil agent run orphan_triage --out-dir .vigil-agent
+vigil agent run pr_migration_plan --pr-number 42 --pr-files docs/runbooks/x.md
 ```
 
 Routines stage markdown reports; a `/schedule` runner (Anthropic cloud
@@ -337,9 +337,9 @@ Your personal markdown lives somewhere idiosyncratic — `~/notes/runbooks/`,
 adapter is the per-engineer translation layer:
 
 ```bash
-teammate adapter init             # writes ~/.teammate-adapter.toml
-teammate adapter show             # see the effective config
-teammate adapter validate         # check that path globs still match files
+vigil adapter init             # writes ~/.vigil-adapter.toml
+vigil adapter show             # see the effective config
+vigil adapter validate         # check that path globs still match files
 ```
 
 MVP scope: path translation (personal globs → canonical brain paths) and
@@ -348,8 +348,8 @@ land in v0.7. See [`docs/ADAPTER.md`](docs/ADAPTER.md).
 
 ### Confidence guards
 
-`teammate ask` won't bluff. Four guards, all configurable in
-`.teammate/config.toml`:
+`vigil ask` won't bluff. Four guards, all configurable in
+`.vigil/config.toml`:
 
 - **Score threshold** — below 0.5, we say "I don't know" instead of
   synthesising. Closest match is surfaced so you can decide whether to
@@ -357,20 +357,20 @@ land in v0.7. See [`docs/ADAPTER.md`](docs/ADAPTER.md).
 - **Citation guard** — every paragraph in the LLM's reply must cite a
   file path in `[brackets]`. Uncited paragraphs are stripped.
 - **Audit JSONL** — every retrieval logs to
-  `.teammate-cache/audit.jsonl`. Rotates weekly.
+  `.vigil-cache/audit.jsonl`. Rotates weekly.
 - **Per-action floor** — `ask` (0.5), agent routines (0.5–0.65),
   reserved `execute` (0.85). Tunable.
 
 ```bash
-teammate audit --since 2026-05-01            # read recent retrievals
-teammate audit --query-grep deploy           # regex filter
+vigil audit --since 2026-05-01            # read recent retrievals
+vigil audit --query-grep deploy           # regex filter
 ```
 
 See [`docs/CONFIDENCE.md`](docs/CONFIDENCE.md).
 
 ### When sources disagree: contradiction detection
 
-When two retrieved chunks contradict each other, `teammate ask` surfaces
+When two retrieved chunks contradict each other, `vigil ask` surfaces
 the conflict instead of blending them into a half-truth:
 
 ```
@@ -390,13 +390,13 @@ Sources of truth that aren't git stay where they are. Teammate syncs
 them into the brain on a slow loop, with PR review:
 
 ```bash
-teammate sync confluence    # pulls Confluence pages → markdown
-teammate sync jira          # pulls Jira issues → decision-record drafts
-teammate sync slack         # pulls pinned messages from declared channels
-teammate sync web           # generic HTTPS → markdown, with domain allowlist
+vigil sync confluence    # pulls Confluence pages → markdown
+vigil sync jira          # pulls Jira issues → decision-record drafts
+vigil sync slack         # pulls pinned messages from declared channels
+vigil sync web           # generic HTTPS → markdown, with domain allowlist
 ```
 
-Each routine reads `[sync.<name>]` from `.teammate/config.toml` and
+Each routine reads `[sync.<name>]` from `.vigil/config.toml` and
 stages markdown drafts under `pending-imports/<routine>-<date>/`.
 The agent never auto-merges; a human turns drafts into real
 `docs/runbooks/...` content via a normal PR. `web_pull` is
@@ -433,9 +433,9 @@ human review.
 Plus a new morning-ritual CLI:
 
 ```bash
-teammate brain-pulse              # what changed in YOUR scope last 24h
-teammate brain-pulse --since 7d   # widen to a week
-teammate brain-pulse --json       # machine-readable for scripts
+vigil brain-pulse              # what changed in YOUR scope last 24h
+vigil brain-pulse --since 7d   # widen to a week
+vigil brain-pulse --json       # machine-readable for scripts
 ```
 
 `brain-pulse` aggregates targeted invalidations, brain page changes,
@@ -451,7 +451,7 @@ The listener runs as a single-replica Deployment and triggers K8s Jobs
 **in real time** — no public URL, no ALB, no ingress rule needed.
 
 ```
-Slack workspace ──WebSocket (outbound)──▶ teammate-event-listener
+Slack workspace ──WebSocket (outbound)──▶ vigil-event-listener
                                                    │
                       ┌────────────────────────────┼─────────────────┐
                       ▼                            ▼                 ▼
@@ -460,7 +460,7 @@ Slack workspace ──WebSocket (outbound)──▶ teammate-event-listener
 
 ```bash
 # Install with Socket Mode dependencies
-pip install 'claude-teammate[listen]'
+pip install 'vigil[listen]'
 
 # Set tokens once (see docs/SOCKET-MODE.md for Slack app setup)
 export SLACK_APP_TOKEN="xapp-..."
@@ -468,7 +468,7 @@ export SLACK_BOT_TOKEN="xoxb-..."
 export TEAMMATE_SLACK_CHANNELS="ops-alerts"
 
 # Start listening (Ctrl-C to stop)
-teammate agent listen --no-fail-on-disconnect
+vigil agent listen --no-fail-on-disconnect
 
 # Say "brain pulse" in #ops-alerts → Job created instantly
 ```
@@ -487,7 +487,7 @@ to add your own.
 | Confluence page edits | ~60s | HTTP polling thread |
 | Polling fallback | 15 min | `brain_pulse` CronJob |
 
-**Fail-fast on disconnect.** The listener writes `/tmp/teammate-heartbeat` every 30s.
+**Fail-fast on disconnect.** The listener writes `/tmp/vigil-heartbeat` every 30s.
 The K8s liveness probe restarts the pod if the heartbeat is more than 90s stale.
 After 5 reconnect failures, the process exits — Kubernetes restarts it.
 
@@ -501,10 +501,10 @@ service ownership, why we picked X, on-call quirks. Two flows:
 ```bash
 # Active engineer — pull team-relevant facts into a review draft.
 # Default for every entry is SKIP — opt-in per entry to import.
-teammate memory-import --memory-root ~/.claude
+vigil memory-import --memory-root ~/.claude
 
 # Departing engineer — dump team-relevant memory as a handover.
-teammate memory-export --memory-root ~/.claude --user alice
+vigil memory-export --memory-root ~/.claude --user alice
 ```
 
 Both commands are read-only on `~/.claude/`. The import flow has a
@@ -538,16 +538,16 @@ even when the heuristic is confident an entry is team-relevant. See
 │  │     keyword fallback│         │                              │     │
 │  └─────────────────────┘         └──────────────────────────────┘     │
 │         ▲                                  ▲                           │
-│         │ teammate ask                     │ Claude Code               │
+│         │ vigil ask                     │ Claude Code               │
 │         │                                  │ (MCP client)              │
 │         │                                                              │
 │  ┌──────┴───────────────────────────────────────────────────────────┐  │
 │  │  CLI                                                             │  │
-│  │   teammate scaffold <dir>   — team lead, one-time per org        │  │
-│  │   teammate init             — engineer, one-time per laptop      │  │
-│  │   teammate ask "<query>"    — local-LLM Q&A with citations       │  │
-│  │   teammate index [--rebuild] — refresh the local sqlite-vec      │  │
-│  │   teammate stats            — show what's in the brain           │  │
+│  │   vigil scaffold <dir>   — team lead, one-time per org        │  │
+│  │   vigil init             — engineer, one-time per laptop      │  │
+│  │   vigil ask "<query>"    — local-LLM Q&A with citations       │  │
+│  │   vigil index [--rebuild] — refresh the local sqlite-vec      │  │
+│  │   vigil stats            — show what's in the brain           │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 │                                                                        │
 └────────────────────────────────────────────────────────────────────────┘
@@ -559,7 +559,7 @@ even when the heuristic is confident an entry is team-relevant. See
 |---|---|
 | **sqlite-vec** for the vector store | Single-file, ~1MB extension, polyglot, mature. The index is one `.sqlite` file — git-LFS-friendly, fits a GitHub Release artifact. |
 | **Ollama** for the local LLM | Universal in 2026, no API key, runs offline, integrates without custom adapters. Default models: `llama3.2:3b`, `nomic-embed-text`. |
-| **Claude Code itself as the agent layer** | We don't bring LangChain or LlamaIndex. Claude Code does the reasoning; teammate just exposes the brain as MCP resources + a search tool. Tiny dependency footprint. |
+| **Claude Code itself as the agent layer** | We don't bring LangChain or LlamaIndex. Claude Code does the reasoning; vigil just exposes the brain as MCP resources + a search tool. Tiny dependency footprint. |
 | **git as the federation layer** | The team already has private git. No new infrastructure. `git log` is the audit trail. `git blame` tells you who wrote what, when. |
 | **Markdown as the format** | Obsidian opens it natively. Diff-friendly. Code-review-friendly. Lasts forever. |
 
@@ -568,7 +568,7 @@ even when the heuristic is confident an entry is team-relevant. See
 - **PGlite + pgvector** — heavier (~3MB + Node runtime), Python integration is weaker than sqlite-vec. Reconsider for v0.3 if the brain ever grows into a structured knowledge graph.
 - **LangChain / LlamaIndex** — over-engineered when Claude Code is the agent. Adds ~50MB of deps for no value.
 - **Cloud vector DBs** (Pinecone, Weaviate Cloud) — defeats the local-sovereign premise.
-- **A teammate cloud service** — there isn't one. There never will be. The team's brain stays on the team's git host.
+- **A vigil cloud service** — there isn't one. There never will be. The team's brain stays on the team's git host.
 
 ---
 
@@ -579,10 +579,10 @@ even when the heuristic is confident an entry is team-relevant. See
 | `TEAMMATE_BRAIN_ROOT` | `cwd` | Override the brain root (useful when running the MCP server from a fixed path). |
 | `TEAMMATE_FORCE_INIT` | `0` | Allow `init` to overwrite an existing pre-push hook. |
 | `TEAMMATE_OVERRIDE` | `0` | Bypass guardrail hooks for one push (use sparingly). |
-| `SLACK_APP_TOKEN` | — | `xapp-…` App-Level Token for Socket Mode. Required for `teammate agent listen`. |
-| `SLACK_BOT_TOKEN` | — | `xoxb-…` Bot Token. Required for `teammate agent listen`. |
+| `SLACK_APP_TOKEN` | — | `xapp-…` App-Level Token for Socket Mode. Required for `vigil agent listen`. |
+| `SLACK_BOT_TOKEN` | — | `xoxb-…` Bot Token. Required for `vigil agent listen`. |
 | `TEAMMATE_SLACK_CHANNELS` | all | Comma-separated channel names to watch. Empty = watch all channels. |
-| `TEAMMATE_NAMESPACE` | `teammate-agent` | K8s namespace for Job creation (event-listener Deployment). |
+| `TEAMMATE_NAMESPACE` | `vigil-agent` | K8s namespace for Job creation (event-listener Deployment). |
 | `ATLASSIAN_API_TOKEN` | — | Enables Jira/Confluence polling in the event listener. |
 | `JIRA_BASE_URL` | — | e.g. `https://your-org.atlassian.net` |
 | `CONFLUENCE_BASE_URL` | — | e.g. `https://your-org.atlassian.net/wiki` |
@@ -594,13 +594,13 @@ even when the heuristic is confident an entry is team-relevant. See
 ## Project structure
 
 ```
-teammate/
-  src/teammate/
-    cli.py                   ← `teammate` entry point
+vigil/
+  src/vigil/
+    cli.py                   ← `vigil` entry point
     brain.py                 ← read-only Brain over a team-brain repo
     init.py                  ← scaffold + init orchestrators
     mcp_server.py            ← JSON-RPC MCP server
-    socket_listener.py       ← Slack Socket Mode WebSocket (teammate agent listen)
+    socket_listener.py       ← Slack Socket Mode WebSocket (vigil agent listen)
     rag/
       ollama.py              ← Ollama HTTP client
       index.py               ← sqlite-vec indexer
@@ -611,7 +611,7 @@ teammate/
     pre-push                 ← raw bash, optional
     pre-tool-use-guardrail.sh ← Claude Code PreToolUse hook, optional
   skills/
-    init-teammate/SKILL.md   ← `/init-teammate` skill
+    init-vigil/SKILL.md   ← `/init-vigil` skill
     ask-vault/SKILL.md       ← `/ask-vault` skill
   .claude-plugin/plugin.json
   .github/workflows/
